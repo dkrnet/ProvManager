@@ -16,6 +16,7 @@ def fixed_identity(_username: str, _config: Config) -> Identity:
 def test_missing_configuration_uses_safe_defaults(tmp_path: Path) -> None:
     config, diagnostics = load_config(str(tmp_path / "missing.conf"))
     assert config.kickstart_root == "/data/provisioning/kickstart/"
+    assert config.tftp_root == "/var/lib/tftpboot/efi/"
     assert config.enable_service_reload is False
     assert config.enable_provisioning_execution is False
     assert diagnostics == ()

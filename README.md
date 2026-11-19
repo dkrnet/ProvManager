@@ -88,7 +88,7 @@ Python 3.13 is not part of the initial supported runtime range because the stand
 | Backups | `/data/provisioning/backups/` |
 | Per-user preferences | `/data/provisioning/user-config/` |
 | Audit log | `/var/log/provmanager/audit.log` |
-| EFI/TFTP root | `/var/lib/tftp/efi/` |
+| EFI/TFTP root | `/var/lib/tftpboot/efi/` |
 | Managed DHCP configuration target | `/etc/dhcp/dhcpd.conf` |
 
 Paths and supported settings are governed by the application requirements and optional `KEY=value` site configuration. Writable directories and privileged integration paths must be provisioned by an administrator; browser requests must not silently create arbitrary privileged directories.
