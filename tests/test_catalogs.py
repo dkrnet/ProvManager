@@ -83,7 +83,7 @@ def test_catalog_lists_read_isolated_files(tmp_path: Path, action: str, path_fie
     )
     assert response.status == "200 OK"
     assert title in response.body
-    assert b"0 record(s)" in response.body
+    assert b"0 matching record(s)" in response.body
 
 
 def test_missing_catalog_is_safe_error_not_empty_data(tmp_path: Path) -> None:
