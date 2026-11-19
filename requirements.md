@@ -52,7 +52,7 @@ The following names define the application's configuration and defaults. Constan
 | `ROLES_FILE` | `/data/provisioning/roles.yaml` | Ansible role catalog/metadata |
 | `TEMPLATES_FILE` | `/data/provisioning/templates.yaml` | Provisioning template catalog |
 | `AUDIT_LOG_FILE` | `/var/log/provmanager/audit.log` | Persistent audit log |
-| `TFTP_ROOT` | `/var/lib/tftp/efi/` | EFI/TFTP boot root |
+| `TFTP_ROOT` | `/var/lib/tftpboot/efi/` | EFI/TFTP boot root |
 | `DHCP_CONFIG_FILE` | `/etc/dhcp/dhcpd.conf` | Managed DHCP configuration target |
 | `KICKSTART_ROOT` | `/data/provisioning/kickstart/` | Kickstart source/generated files |
 | `ANSIBLE_ROOT` | `/data/provisioning/ansible/` | Approved Ansible content root |
@@ -517,7 +517,7 @@ An initial complete release shall be accepted when an authorized user can log in
 | Backups | `/data/provisioning/backups/` |
 | Staged generated output | `/data/provisioning/generated/` |
 | Audit log | `/var/log/provmanager/audit.log` |
-| TFTP boot files | `/var/lib/tftp/efi/` |
+| TFTP boot files | `/var/lib/tftpboot/efi/` |
 | DHCP configuration | `/etc/dhcp/dhcpd.conf` |
 | Kickstart files | `/data/provisioning/kickstart/` |
 | Ansible content | `/data/provisioning/ansible/` |

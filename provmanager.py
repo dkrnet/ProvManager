@@ -74,7 +74,7 @@ class Config:
     roles_file: str = "/data/provisioning/roles.yaml"
     templates_file: str = "/data/provisioning/templates.yaml"
     audit_log_file: str = "/var/log/provmanager/audit.log"
-    tftp_root: str = "/var/lib/tftp/efi/"
+    tftp_root: str = "/var/lib/tftpboot/efi/"
     dhcp_config_file: str = "/etc/dhcp/dhcpd.conf"
     kickstart_root: str = "/data/provisioning/kickstart/"
     ansible_root: str = "/data/provisioning/ansible/"
