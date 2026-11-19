@@ -34,6 +34,7 @@ def test_build_stamps_copy_without_modifying_source(tmp_path: Path) -> None:
     built = (tmp_path / "output" / "provmanager.py").read_text(encoding="utf-8")
     assert "PROVMANAGER_VERSION = \"1.0.0-dev." in built
     assert (ROOT / "provmanager.py").read_bytes() == source_before
+    assert (tmp_path / "output" / "provmanager-form-auth.conf.example").is_file()
     assert "Built ProvManager" in result.stdout
 
 

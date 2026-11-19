@@ -146,7 +146,7 @@ python3 -m venv .venv
 2. Create the five operating-system groups documented under Access control and assign users through the system’s NSS-aware account service.
 3. Create the four YAML catalogs using the version-1 envelope and examples in [`docs/catalog-schema.md`](docs/catalog-schema.md).
 4. Give the CGI service account read access to the configuration, catalogs, and any directories inspected during validation. Do not grant system-path write access for this milestone.
-5. Install `provmanager.cgi`, `provmanager.py`, and the Python dependency where the web server can execute/import them. Configure the web server’s authentication layer to set `REMOTE_USER`; ProvManager never handles or validates passwords.
+5. Install `provmanager.cgi`, `provmanager.py`, and the Python dependency where the web server can execute/import them. Adapt [`provmanager-form-auth.conf.example`](provmanager-form-auth.conf.example) for the Apache installation and configure the web server’s authentication layer to set `REMOTE_USER`; ProvManager never handles or validates passwords.
 
 The optional site configuration is plain `KEY=value` data and must not be sourced as shell code. Unknown keys are ignored. Invalid values retain safe defaults and produce an administrative diagnostic.
 
