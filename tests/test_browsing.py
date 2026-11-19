@@ -112,7 +112,9 @@ def test_search_controls_share_utility_row_with_welcome(tmp_path: Path) -> None:
     utility_row = response.body[row_start:row_end]
     assert b"Welcome, <strong>Reader</strong>" in utility_row
     assert b'<form class="catalog-search"' in utility_row
-    assert b'<label for="catalog-search">Search</label><input' in utility_row
+    assert b'<label class="visually-hidden" for="catalog-search">Search</label><input' in utility_row
+    assert b'placeholder="Search" type="search"' in utility_row
+    assert b'<button type="submit">Search</button>' not in utility_row
     assert b"Status" not in utility_row
     assert b".catalog-search{display:flex;justify-content:flex-end" in response.body
 
