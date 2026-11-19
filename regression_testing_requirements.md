@@ -86,6 +86,8 @@ tests/
 
 # 4. Test Isolation and Side-effect Prohibition
 
+- During the initial read-only milestone, assert that application requests never modify DHCP, TFTP, Kickstart, Ansible, service configuration, or any other system-managed target and never invoke validators, provisioning commands, service commands, playbooks, mounts, or background workers. Enabling a parsed feature-gate setting must not make an unimplemented operation available.
+
 - All test-created canonical catalogs, preference files, generated artifacts, backups, manifests, audit logs, lock files, and simulated deployed output shall live under a per-test temporary directory.
 - Use a fixture such as `tmp_path` to construct a fully isolated `/data/provisioning/` equivalent without writing to the actual `/data/provisioning/` tree.
 - Remap `HOSTS_FILE`, `INSTALLERS_FILE`, `ROLES_FILE`, `TEMPLATES_FILE`, `PER_USER_CONFIG_DIR`, `LOCK_DIR`, `BACKUP_DIR`, `GENERATED_OUTPUT_DIR`, `KICKSTART_ROOT`, `ANSIBLE_ROOT`, `INVENTORY_OUTPUT_FILE`, `TFTP_ROOT`, `DHCP_CONFIG_FILE`, `AUDIT_LOG_FILE`, and `SITE_CONFIG_FILE` to test-only paths.
