@@ -90,7 +90,30 @@ def test_pagination_controls_appear_above_and_below_table_with_shared_style(tmp_
     table_end = response.body.index(b"</table>")
     positions = [index for index in range(len(response.body)) if response.body.startswith(marker, index)]
     assert positions[0] < table_start < table_end < positions[1]
-    assert b".pagination{font-size:.82rem;text-align:right}" in response.body
+    assert b".pagination{font-size:.82rem;text-align:right;margin:.5rem 0}" in response.body
+
+
+def test_upper_pagination_shares_summary_row_with_matching_count(tmp_path: Path) -> None:
+    config = _config(tmp_path, "  - {id: a, hostname: alpha.example, enabled: true}\n", page_size=1)
+    response = _request(config, "page=1")
+    summary_start = response.body.index(b'<div class="list-summary">')
+    summary_end = response.body.index(b"</div>", summary_start)
+    summary = response.body[summary_start:summary_end]
+    assert b"1 matching record(s)" in summary
+    assert b'<p class="pagination">Page 1 of 1</p>' in summary
+    assert b".list-summary{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}" in response.body
+
+
+def test_search_controls_share_utility_row_with_welcome(tmp_path: Path) -> None:
+    config = _config(tmp_path, "  - {id: a, hostname: alpha.example, enabled: true}\n")
+    response = _request(config, "q=alpha")
+    row_start = response.body.index(b'<div class="utility-row">')
+    row_end = response.body.index(b"</div>", row_start)
+    utility_row = response.body[row_start:row_end]
+    assert b"Welcome, <strong>Reader</strong>" in utility_row
+    assert b'<form class="catalog-filter"' in utility_row
+    assert b'<label for="catalog-search">Search</label><input' in utility_row
+    assert b".catalog-filter{display:flex;justify-content:flex-end" in response.body
 
 
 def test_browsing_has_no_catalog_side_effect(tmp_path: Path) -> None:
