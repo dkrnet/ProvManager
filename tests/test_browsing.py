@@ -111,9 +111,32 @@ def test_search_controls_share_utility_row_with_welcome(tmp_path: Path) -> None:
     row_end = response.body.index(b"</div>", row_start)
     utility_row = response.body[row_start:row_end]
     assert b"Welcome, <strong>Reader</strong>" in utility_row
-    assert b'<form class="catalog-filter"' in utility_row
+    assert b'<form class="catalog-search"' in utility_row
     assert b'<label for="catalog-search">Search</label><input' in utility_row
-    assert b".catalog-filter{display:flex;justify-content:flex-end" in response.body
+    assert b"Status" not in utility_row
+    assert b".catalog-search{display:flex;justify-content:flex-end" in response.body
+
+
+def test_status_filter_is_left_aligned_below_page_heading(tmp_path: Path) -> None:
+    config = _config(tmp_path, "  - {id: a, hostname: alpha.example, enabled: true}\n")
+    response = _request(config, "q=alpha&enabled=true")
+    heading = response.body.index(b"<h1>Hosts</h1>")
+    status = response.body.index(b'<form class="status-filter"')
+    summary = response.body.index(b'<div class="list-summary">')
+    assert heading < status < summary
+    assert b".status-filter{display:flex;justify-content:flex-start" in response.body
+    status_end = response.body.index(b"</form>", status)
+    status_form = response.body[status:status_end]
+    assert b'name="q" value="alpha"' in status_form
+
+
+def test_search_preserves_active_status_filter(tmp_path: Path) -> None:
+    config = _config(tmp_path, "  - {id: a, hostname: alpha.example, enabled: true}\n")
+    response = _request(config, "enabled=true")
+    search = response.body.index(b'<form class="catalog-search"')
+    search_end = response.body.index(b"</form>", search)
+    search_form = response.body[search:search_end]
+    assert b'name="enabled" value="true"' in search_form
 
 
 def test_browsing_has_no_catalog_side_effect(tmp_path: Path) -> None:
