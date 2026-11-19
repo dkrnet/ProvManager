@@ -432,7 +432,7 @@ def _html_page(title: str, content: str, public: bool = True, identity: Optional
     document = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{0} · ProvManager</title><link rel="icon" href="?action=favicon">
-<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
+<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.pagination{{font-size:.82rem;text-align:right}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
 <body><header>ProvManager</header><main>{3}{4}<h1>{0}</h1>{1}</main>{2}</body></html>""".format(
         html.escape(title), content, footer, welcome, navigation
     )
@@ -553,9 +553,9 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
             if enabled_filter:
                 page_query["enabled"] = enabled_filter
             pagination.append('<a href="?{}">{}</a>'.format(html.escape(urlencode(page_query), quote=True), label))
-    page_controls = '<p>Page {} of {}{}</p>'.format(page, page_count, " · " + " · ".join(pagination) if pagination else "")
-    return '{}<p>{} matching record(s)</p>{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>'.format(
-        controls, len(sorted_records), page_controls, headings, rows
+    page_controls = '<p class="pagination">Page {} of {}{}</p>'.format(page, page_count, " · " + " · ".join(pagination) if pagination else "")
+    return '{}<p>{} matching record(s)</p>{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>{}'.format(
+        controls, len(sorted_records), page_controls, headings, rows, page_controls
     )
 
 

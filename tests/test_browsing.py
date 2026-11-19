@@ -76,6 +76,23 @@ def test_pagination_clamps_page_and_preserves_filters(tmp_path: Path) -> None:
     assert b"charlie.example" in last.body
 
 
+def test_pagination_controls_appear_above_and_below_table_with_shared_style(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        "  - {id: a, hostname: alpha.example, enabled: true}\n"
+        "  - {id: b, hostname: beta.example, enabled: true}\n",
+        page_size=1,
+    )
+    response = _request(config, "page=1")
+    marker = b'<p class="pagination">Page 1 of 2'
+    assert response.body.count(marker) == 2
+    table_start = response.body.index(b"<table>")
+    table_end = response.body.index(b"</table>")
+    positions = [index for index in range(len(response.body)) if response.body.startswith(marker, index)]
+    assert positions[0] < table_start < table_end < positions[1]
+    assert b".pagination{font-size:.82rem;text-align:right}" in response.body
+
+
 def test_browsing_has_no_catalog_side_effect(tmp_path: Path) -> None:
     config = _config(tmp_path, "  - {id: a, hostname: alpha.example, enabled: true}\n")
     path = Path(config.hosts_file)
