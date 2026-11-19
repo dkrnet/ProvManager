@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Regression coverage for the milestone-one CGI and configuration core."""
+
+from pathlib import Path
+
+from provmanager import Config, Identity, dispatch, load_config
+
+
+VIEWER = Identity("alice", "Alice Example", frozenset({"provisioning_viewer"}), frozenset({"hosts_read", "catalogs_read", "preview"}))
+
+
+def fixed_identity(_username: str, _config: Config) -> Identity:
+    return VIEWER
+
+
+def test_missing_configuration_uses_safe_defaults(tmp_path: Path) -> None:
+    config, diagnostics = load_config(str(tmp_path / "missing.conf"))
+    assert config.kickstart_root == "/data/provisioning/kickstart/"
+    assert config.enable_service_reload is False
+    assert config.enable_provisioning_execution is False
+    assert diagnostics == ()
+
+
+def test_configuration_parses_supported_values_and_rejects_unsafe_ones(tmp_path: Path) -> None:
+    path = tmp_path / "provmanager.conf"
+    path.write_text(
+        "LIST_PAGE_SIZE=25\nENABLE_SERVICE_RELOAD=yes\nHOSTS_FILE=relative.yaml\nUNKNOWN_KEY=value\n",
+        encoding="utf-8",
+    )
+    config, diagnostics = load_config(str(path))
+    assert config.list_page_size == 25
+    assert config.enable_service_reload is True
+    assert config.hosts_file == Config().hosts_file
+    assert diagnostics == ("Ignored invalid value for HOSTS_FILE.",)
+
+
+def test_default_request_without_user_shows_login() -> None:
+    response = dispatch({"QUERY_STRING": ""})
+    assert response.status == "200 OK"
+    assert b"Sign in to continue" in response.body
+    assert b"ProvManager 1.0.0" not in response.body
+
+
+def test_favicon_is_public_and_nonempty() -> None:
+    response = dispatch({"QUERY_STRING": "action=favicon"})
+    assert response.status == "200 OK"
+    assert response.body
+
+
+def test_protected_action_redirects_anonymous_request() -> None:
+    response = dispatch({"QUERY_STRING": "action=hosts"})
+    assert response.status == "303 See Other"
+    assert ("Location", "?action=login") in response.headers
+
+
+def test_authenticated_default_routes_to_hosts() -> None:
+    response = dispatch({"QUERY_STRING": "", "REMOTE_USER": "alice"}, identity_resolver=fixed_identity)
+    assert response.status == "500 Internal Server Error"
+    assert b"ProvManager 1.0.0" in response.body
+
+
+def test_unknown_authenticated_action_is_404() -> None:
+    response = dispatch({"QUERY_STRING": "action=does_not_exist", "REMOTE_USER": "alice"}, identity_resolver=fixed_identity)
+    assert response.status == "404 Not Found"
+
+
+def test_cgi_serialization_places_headers_before_body() -> None:
+    payload = dispatch({"QUERY_STRING": "action=login"}).to_cgi()
+    header, body = payload.split(b"\r\n\r\n", 1)
+    assert header.startswith(b"Status: 200 OK")
+    assert b"Content-Type: text/html; charset=utf-8" in header
+    assert body.startswith(b"<!doctype html>")

@@ -11,6 +11,10 @@ ProvManager shall provide Apache-delegated authentication, an authenticated page
 
 The application is intended for controlled internal networks, including disconnected environments. It shall not require an external API, cloud account, JavaScript framework, application server, or database service. Provisioning changes may affect external systems; such operations must be explicit, validated, auditable, and reversible where practical.
 
+## Initial Read-Only Milestone
+
+The initial implementation milestone shall limit operating-system integration to reading configured files, catalogs, directories, account records, and group records for display and validation. It shall not modify DHCP, TFTP, Kickstart, Ansible, service configuration, or any other system-managed target; run validators, provisioning tools, service commands, or playbooks; mount or publish installer media; or launch background jobs. Apply, execution, service reload, and settings-mutation actions shall remain unavailable even if a feature-gate value is enabled. Test-only files may be created only under isolated temporary paths, and the build process may write only to its selected application build-output directory. Later implementation of system mutation requires an approved privileged integration contract and corresponding requirements and regression-test updates.
+
 # Implementation Language and Runtime
 
 - All application code shall be Python; the CGI entry point shall be `provmanager.cgi`.

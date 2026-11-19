@@ -125,6 +125,39 @@ The project maintains three complementary documents:
 
 The planned regression suite uses `pytest` and must run without Apache, root privileges, real provisioning operations, or production accounts and services. Test expectations are defined by the requirements rather than inferred solely from current code.
 
+### Initial read-only milestone
+
+The current implementation provides the CGI foundation, external-identity role checks, safe catalog browsing, record details, and read-only validation. It reads configured system files and directories but does not modify system-managed paths or run external commands. Apply, execution, service reload, settings mutation, and catalog editing are intentionally unavailable, including when their configuration gates are set to true.
+
+### Dependencies and local tests
+
+ProvManager supports Python 3.9–3.12 and requires PyYAML 6.x. Development tests use pytest 7.x or 8.x. A local isolated environment can be prepared with:
+
+```sh
+python3 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt -r requirements-dev.txt
+.venv/bin/python -m py_compile provmanager.py provmanager.cgi
+.venv/bin/python -m pytest -q
+```
+
+### First-run setup
+
+1. Copy `provmanager.conf.example` to `/etc/provmanager.conf` and adjust only the required paths and external authentication fields.
+2. Create the five operating-system groups documented under Access control and assign users through the system’s NSS-aware account service.
+3. Create the four YAML catalogs using the version-1 envelope and examples in [`docs/catalog-schema.md`](docs/catalog-schema.md).
+4. Give the CGI service account read access to the configuration, catalogs, and any directories inspected during validation. Do not grant system-path write access for this milestone.
+5. Install `provmanager.cgi`, `provmanager.py`, and the Python dependency where the web server can execute/import them. Configure the web server’s authentication layer to set `REMOTE_USER`; ProvManager never handles or validates passwords.
+
+The optional site configuration is plain `KEY=value` data and must not be sourced as shell code. Unknown keys are ignored. Invalid values retain safe defaults and produce an administrative diagnostic.
+
+### Build output
+
+Run `./build.sh` for a development version such as `1.0.0-dev.N+GITID`, or `./build.sh --release` for `1.0.0+GITID`. Output is written to `build/` by default. Set `PROVMANAGER_BUILD_DIR` to select another application-owned output directory. The script stamps only the copied output and leaves the source version unchanged.
+
+### Backup and restore
+
+The read-only milestone does not write catalogs or system configuration, so it does not create application backups. Catalogs should be backed up and restored using administrator-controlled filesystem procedures while preserving ownership and permissions. Application-managed atomic writes and backup/rollback workflows will be introduced only with a later explicitly approved mutation milestone.
+
 ## Intended audience and scope
 
 ProvManager is intended for administrators who need a practical, self-hosted interface for provisioning in small networks, labs, internal workgroups, or disconnected environments.
