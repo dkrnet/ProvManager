@@ -131,7 +131,7 @@ The current implementation provides the CGI foundation, external-identity role c
 
 ### Dependencies and local tests
 
-ProvManager supports Python 3.9–3.12 and requires PyYAML 6.x. Development tests use pytest 7.x or 8.x. A local isolated environment can be prepared with:
+ProvManager supports Python 3.9–3.12 and requires PyYAML 6.x for catalogs, Python-Markdown 3.x for description rendering, and Bleach 6.x for HTML sanitization. If the Markdown dependencies are unavailable, descriptions fall back to escaped plaintext. Development tests use pytest 7.x or 8.x. A local isolated environment can be prepared with:
 
 ```sh
 python3 -m venv .venv

@@ -10,12 +10,19 @@ import pwd
 import re
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Tuple
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode
 
 try:
     import yaml
 except ImportError:  # pragma: no cover - exercised by deployments without dependencies
     yaml = None
+
+try:
+    import bleach
+    import markdown
+except ImportError:  # pragma: no cover - safe plaintext fallback is tested directly
+    bleach = None
+    markdown = None
 
 
 PROVMANAGER_VERSION = "1.0.0"
@@ -49,6 +56,7 @@ ACTION_CAPABILITIES = {
     "settings": "settings_read",
     "settings_update": "settings_write",
     "audit": "audit_read",
+    "markdown_help": "hosts_read",
 }
 
 CATALOG_ACTIONS = {
@@ -63,6 +71,13 @@ DETAIL_ACTIONS = {
     "installer_view": ("installers", "Installer"),
     "role_view": ("roles", "Ansible Role"),
     "template_view": ("templates", "Template"),
+}
+
+SEARCH_FIELDS = {
+    "hosts": ("hostname", "description", "ipv4_address", "ipv6_address", "mac_addresses", "tags"),
+    "installers": ("name", "description", "os_family", "os_version", "architecture", "source_type"),
+    "roles": ("name", "description", "role_path"),
+    "templates": ("name", "description", "template_type"),
 }
 
 
@@ -451,16 +466,64 @@ def _display_value(value: Any, key: str = "") -> str:
     return str(value)
 
 
-def _catalog_table(action: str, records: List[Dict[str, Any]]) -> str:
+def _query_value(params: Mapping[str, List[str]], name: str) -> str:
+    return params.get(name, [""])[0].strip()
+
+
+def _search_text(record: Dict[str, Any], fields_to_search: Tuple[str, ...]) -> str:
+    return " ".join(_display_value(record.get(field), field) for field in fields_to_search).casefold()
+
+
+def _page_number(raw_value: str, page_count: int) -> int:
+    try:
+        requested = int(raw_value)
+    except (TypeError, ValueError):
+        requested = 1
+    return min(max(requested, 1), max(page_count, 1))
+
+
+def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config) -> str:
     title, _path_field, sort_field, columns = CATALOG_ACTIONS[action]
-    sorted_records = sorted(records, key=lambda record: str(record.get(sort_field, "")).casefold())
-    headings = "".join("<th scope=\"col\">{}</th>".format(html.escape(column.replace("_", " ").title())) for column in columns)
-    if not sorted_records:
+    query = _query_value(params, "q")
+    enabled_filter = _query_value(params, "enabled").casefold()
+    selected_sort = _query_value(params, "sort")
+    if selected_sort not in columns:
+        selected_sort = sort_field
+    direction = "desc" if _query_value(params, "direction").casefold() == "desc" else "asc"
+    filtered = records
+    if query:
+        needle = query.casefold()
+        filtered = [record for record in filtered if needle in _search_text(record, SEARCH_FIELDS[action])]
+    if enabled_filter in {"true", "false"}:
+        desired = enabled_filter == "true"
+        filtered = [record for record in filtered if record.get("enabled") is desired]
+    sorted_records = sorted(
+        filtered,
+        key=lambda record: (str(record.get(selected_sort, "")).casefold(), str(record.get("id", ""))),
+        reverse=direction == "desc",
+    )
+    page_count = max(1, (len(sorted_records) + config.list_page_size - 1) // config.list_page_size)
+    page = _page_number(_query_value(params, "page"), page_count)
+    start = (page - 1) * config.list_page_size
+    page_records = sorted_records[start:start + config.list_page_size]
+    heading_cells = []
+    for column in columns:
+        next_direction = "desc" if selected_sort == column and direction == "asc" else "asc"
+        heading_query = {"action": action, "sort": column, "direction": next_direction}
+        if query:
+            heading_query["q"] = query
+        if enabled_filter:
+            heading_query["enabled"] = enabled_filter
+        heading_cells.append('<th scope="col"><a href="?{}">{}</a></th>'.format(
+            html.escape(urlencode(heading_query), quote=True), html.escape(column.replace("_", " ").title())
+        ))
+    headings = "".join(heading_cells)
+    if not page_records:
         rows = '<tr><td colspan="{}">No {} are configured.</td></tr>'.format(len(columns), html.escape(title.lower()))
     else:
         detail_action = {"hosts": "host_view", "installers": "installer_view", "roles": "role_view", "templates": "template_view"}[action]
         rendered_rows = []
-        for record in sorted_records:
+        for record in page_records:
             cells = []
             for index, column in enumerate(columns):
                 value = html.escape(_display_value(record.get(column), column))
@@ -471,18 +534,77 @@ def _catalog_table(action: str, records: List[Dict[str, Any]]) -> str:
                 cells.append("<td>{}</td>".format(value))
             rendered_rows.append("<tr>{}</tr>".format("".join(cells)))
         rows = "".join(rendered_rows)
-    return '<p>{} record(s)</p><table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>'.format(len(sorted_records), headings, rows)
+    controls = """<form method="get"><input type="hidden" name="action" value="{action}">
+<label for="catalog-search">Search</label> <input id="catalog-search" name="q" value="{query}">
+<label for="enabled-filter">Status</label> <select id="enabled-filter" name="enabled">
+<option value="">All</option><option value="true"{true_selected}>Enabled</option><option value="false"{false_selected}>Disabled</option>
+</select> <button type="submit">Filter</button> <a href="?action={action}">Reset</a></form>""".format(
+        action=action,
+        query=html.escape(query, quote=True),
+        true_selected=" selected" if enabled_filter == "true" else "",
+        false_selected=" selected" if enabled_filter == "false" else "",
+    )
+    pagination = []
+    for target, label in ((page - 1, "Previous"), (page + 1, "Next")):
+        if 1 <= target <= page_count:
+            page_query = {"action": action, "page": str(target), "sort": selected_sort, "direction": direction}
+            if query:
+                page_query["q"] = query
+            if enabled_filter:
+                page_query["enabled"] = enabled_filter
+            pagination.append('<a href="?{}">{}</a>'.format(html.escape(urlencode(page_query), quote=True), label))
+    page_controls = '<p>Page {} of {}{}</p>'.format(page, page_count, " · " + " · ".join(pagination) if pagination else "")
+    return '{}<p>{} matching record(s)</p>{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>'.format(
+        controls, len(sorted_records), page_controls, headings, rows
+    )
 
 
 def _record_detail(record: Dict[str, Any]) -> str:
     rows = []
     for key in sorted(record):
+        rendered_value = render_markdown(str(record[key])) if key == "description" else html.escape(_display_value(record[key], key))
         rows.append(
             "<tr><th scope=\"row\">{}</th><td>{}</td></tr>".format(
-                html.escape(key.replace("_", " ").title()), html.escape(_display_value(record[key], key))
+                html.escape(key.replace("_", " ").title()), rendered_value
             )
         )
     return "<table><tbody>{}</tbody></table>".format("".join(rows))
+
+
+def render_markdown(source: str) -> str:
+    """Render the documented Markdown subset and sanitize the resulting HTML."""
+    if markdown is None or bleach is None:
+        return "<pre>{}</pre>".format(html.escape(source))
+    with_strikethrough = re.sub(r"~~([^\n~]+)~~", r"<del>\1</del>", source)
+    rendered = markdown.markdown(with_strikethrough, extensions=["fenced_code"])
+    return bleach.clean(
+        rendered,
+        tags={"p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "strong", "em", "del", "code", "pre", "a", "blockquote"},
+        attributes={"a": ["href", "title"]},
+        protocols={"http", "https", "mailto"},
+        strip=True,
+    )
+
+
+def _markdown_help() -> str:
+    examples = """# Heading
+
+Use **bold**, *emphasis*, and ~~strikethrough~~.
+
+- Bulleted item
+- Another item
+
+1. Numbered item
+2. Another item
+
+`inline code` and [safe links](https://example.invalid) are supported.
+
+```text
+fenced code block
+```"""
+    return '<p>Descriptions support the following safely rendered syntax.</p>{}<h2>Source</h2><pre>{}</pre>'.format(
+        render_markdown(examples), html.escape(examples)
+    )
 
 
 def _findings_table(findings: List[Finding]) -> str:
@@ -552,7 +674,7 @@ def dispatch(
         except CatalogError as error:
             content = "<p>{}</p>".format(html.escape(str(error)))
             return _html_response(title, content, "500 Internal Server Error", public=False, identity=identity, config=active)
-        return _html_response(title, _catalog_table(action, records), public=False, identity=identity, config=active)
+        return _html_response(title, _catalog_table(action, records, params, active), public=False, identity=identity, config=active)
     if action in DETAIL_ACTIONS:
         catalog_action, singular_title = DETAIL_ACTIONS[action]
         _catalog_title, path_field, _sort_field, _columns = CATALOG_ACTIONS[catalog_action]
@@ -570,6 +692,8 @@ def dispatch(
         return _html_response("{}: {}".format(singular_title, display_name), _record_detail(record), public=False, identity=identity, config=active)
     if action == "validate":
         return _html_response("Validation", _findings_table(validate_catalogs(active)), public=False, identity=identity, config=active)
+    if action == "markdown_help":
+        return _html_response("Markdown Help", _markdown_help(), public=False, identity=identity, config=active)
     if action in ACTION_CAPABILITIES:
         return _html_response("Not implemented", "<p>This authorized action is not implemented in the initial slice.</p>", "501 Not Implemented", public=False, identity=identity, config=active)
     return _html_response("Not found", "<p>The requested action is not available.</p>", "404 Not Found", public=False, identity=identity, config=active)

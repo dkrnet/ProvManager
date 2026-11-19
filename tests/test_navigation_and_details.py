@@ -65,8 +65,8 @@ def test_detail_page_escapes_all_values_and_is_read_only(tmp_path: Path) -> None
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read"}))
     response = _dispatch("action=host_view&id=host-001", viewer, config)
     assert response.status == "200 OK"
-    assert b"&lt;img src=x onerror=alert(1)&gt;" in response.body
     assert b"<img src=x" not in response.body
+    assert b"onerror" not in response.body
     assert path.read_bytes() == before
 
 
