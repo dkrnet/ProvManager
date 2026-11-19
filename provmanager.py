@@ -528,13 +528,14 @@ def dispatch(
     if action == "login":
         return _login(active)
     messages = {
-        "login_failed": ("Login failed", "The sign-in attempt was not accepted. Please try again."),
-        "logged_out": ("Signed out", "You have been signed out."),
-        "auth_error": ("Sign-in error", "Sign-in could not be completed."),
+        "login_failed": ("Login failed", "The sign-in attempt was not accepted. Please try again.", True),
+        "logged_out": ("Signed out", "You have been signed out.", True),
+        "auth_error": ("Sign-in error", "Sign-in could not be completed.", False),
     }
     if action in messages:
-        title, message = messages[action]
-        return _html_response(title, "<p>{}</p>".format(html.escape(message)))
+        title, message, show_login_link = messages[action]
+        login_link = ' <a href="?action=login">Return to login</a>.' if show_login_link else ""
+        return _html_response(title, "<p>{}{}</p>".format(html.escape(message), login_link))
     if not user:
         location = "?action=login"
         return Response("303 See Other", (("Location", location), ("Content-Type", "text/plain; charset=utf-8"), ("Cache-Control", "no-store")), b"Authentication required.\n")

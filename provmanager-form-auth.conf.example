@@ -1,0 +1,127 @@
+# /etc/httpd/conf.d/provmanager-form-auth.conf
+#
+# Example Apache 2.4 form-based authentication configuration for:
+#   /cgi-bin/provmanager.cgi
+#
+# This file assumes:
+# - provmanager.cgi and provmanager.py are installed together in the configured
+#   CGI directory and the web-server account can import the module.
+# - provmanager.cgi renders the public login/support pages and favicon.
+# - Apache performs authentication and supplies REMOTE_USER to protected actions.
+# - PAM service "httpd" and the ProvManager operating-system groups are already
+#   configured by an administrator.
+# - TLS is used. The session cookie below is Secure and will not work over plain
+#   HTTP; do not remove Secure on a production deployment.
+#
+# Required Apache modules commonly include:
+#   auth_form_module
+#   session_module
+#   session_cookie_module
+#   request_module
+#   auth_basic_module
+#   authn_core_module
+#   authz_core_module
+#   authnz_pam_module
+#   headers_module
+#
+# The CGI handler itself also requires the CGI module/configuration appropriate
+# to the Apache installation (commonly cgi_module or cgid_module).
+#
+# Check loaded modules with:
+#   httpd -M | egrep 'auth_form|session|request|authnz_pam|auth_basic|headers|cgi'
+
+# ---------------------------------------------------------------------------
+# Session support for mod_auth_form
+# ---------------------------------------------------------------------------
+
+Session On
+SessionCookieName provmanager_session path=/;httponly;secure;samesite=Strict
+SessionMaxAge 28800
+
+# ---------------------------------------------------------------------------
+# Login form handler
+# ---------------------------------------------------------------------------
+#
+# These field names match the ProvManager source defaults and
+# provmanager.conf.example:
+#
+#   AUTH_FORM_ACTION          = /login
+#   AUTH_FORM_USERNAME_FIELD  = httpd_username
+#   AUTH_FORM_PASSWORD_FIELD  = httpd_password
+#   AUTH_FORM_LOCATION_FIELD  = httpd_location
+#
+# Apache handles submitted credentials. ProvManager must never validate,
+# inspect, store, or log the password.
+
+<Location "/login">
+    SetHandler form-login-handler
+
+    AuthType form
+    AuthName "ProvManager"
+
+    AuthFormProvider PAM
+    AuthPAMService httpd
+
+    AuthFormUsername httpd_username
+    AuthFormPassword httpd_password
+    AuthFormLocation httpd_location
+
+    AuthFormLoginSuccessLocation /cgi-bin/provmanager.cgi
+    AuthFormLoginRequiredLocation /cgi-bin/provmanager.cgi?action=login_failed
+
+    Require valid-user
+</Location>
+
+# ---------------------------------------------------------------------------
+# Public support actions and protected application actions
+# ---------------------------------------------------------------------------
+#
+# Only login, login_failed, logged_out, auth_error, and favicon are public.
+# Every other request to the CGI requires an authenticated Apache user. The CGI
+# then performs its own NSS group/capability authorization for each action.
+#
+# If Require expr cannot inspect QUERY_STRING in the local Apache build, expose
+# the public actions through a separate wrapper rather than making the entire
+# CGI location public.
+
+<Location "/cgi-bin/provmanager.cgi">
+    <RequireAny>
+        Require expr "%{QUERY_STRING} =~ m#(^|&)action=(login|login_failed|logged_out|auth_error|favicon)(&|$)#"
+        Require valid-user
+    </RequireAny>
+
+    AuthType form
+    AuthName "ProvManager"
+
+    AuthFormProvider PAM
+    AuthPAMService httpd
+
+    AuthFormUsername httpd_username
+    AuthFormPassword httpd_password
+    AuthFormLocation httpd_location
+
+    # Preserve the requested application destination through authentication.
+    # ProvManager validates the returned path/query before using it.
+    AuthFormLoginRequiredLocation "/cgi-bin/provmanager.cgi?action=login&next_path=%{REQUEST_URI}&next_query=%{QUERY_STRING}"
+    AuthFormLoginSuccessLocation /cgi-bin/provmanager.cgi
+
+    ErrorDocument 401 /cgi-bin/provmanager.cgi?action=login
+    ErrorDocument 403 /cgi-bin/provmanager.cgi?action=auth_error
+</Location>
+
+# ---------------------------------------------------------------------------
+# Logout URL
+# ---------------------------------------------------------------------------
+#
+# This matches the default LOGOUT_URL=/provmanager-logout. If the site changes
+# that application setting, change this Location path as well.
+#
+# Session invalidation details can vary between Apache/session packages. Test
+# this endpoint with the installed modules; if it does not clear the session,
+# replace it with the session backend's supported logout mechanism.
+
+<Location "/provmanager-logout">
+    Session On
+    Header always set Set-Cookie "provmanager_session=deleted; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; Secure; SameSite=Strict"
+    Redirect 303 /cgi-bin/provmanager.cgi?action=logged_out
+</Location>

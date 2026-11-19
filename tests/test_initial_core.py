@@ -48,6 +48,14 @@ def test_favicon_is_public_and_nonempty() -> None:
     assert response.body
 
 
+def test_login_failed_and_logged_out_link_back_to_login() -> None:
+    for action in ("login_failed", "logged_out"):
+        response = dispatch({"QUERY_STRING": "action=" + action})
+        assert response.status == "200 OK"
+        assert b'href="?action=login"' in response.body
+        assert b"Return to login" in response.body
+
+
 def test_protected_action_redirects_anonymous_request() -> None:
     response = dispatch({"QUERY_STRING": "action=hosts"})
     assert response.status == "303 See Other"
