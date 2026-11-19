@@ -432,7 +432,7 @@ def _html_page(title: str, content: str, public: bool = True, identity: Optional
     document = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{0} · ProvManager</title><link rel="icon" href="?action=favicon">
-<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}.utility-row{{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}}.welcome{{margin:.5rem 0}}.catalog-search{{display:flex;justify-content:flex-end;align-items:center;font-size:.9rem}}.visually-hidden{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}.status-filter label{{display:inline;margin:0}}.status-filter{{display:flex;justify-content:flex-start;align-items:center;gap:.4rem;font-size:.9rem;margin-bottom:.6rem}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.list-summary{{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}}.pagination{{font-size:.82rem;text-align:right;margin:.5rem 0}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
+<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}.utility-row{{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}}.welcome{{margin:.5rem 0}}.catalog-search{{display:flex;justify-content:flex-end;align-items:center;font-size:.9rem}}.visually-hidden{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}.status-filter label{{display:inline;margin:0}}.status-filter{{display:flex;justify-content:flex-start;align-items:center;gap:.4rem;font-size:.9rem;margin-bottom:.6rem}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.list-summary{{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}}.pagination{{font-size:.82rem;text-align:right;margin:.5rem 0}}.pagination select{{font-size:inherit;padding:.1rem .25rem}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
 <body><header>ProvManager</header><main><div class="utility-row">{3}{5}</div>{4}<h1>{0}</h1>{1}</main>{2}</body></html>""".format(
         html.escape(title), content, footer, welcome, navigation, top_controls
     )
@@ -568,7 +568,22 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
             if enabled_filter:
                 page_query["enabled"] = enabled_filter
             pagination.append('<a href="?{}">{}</a>'.format(html.escape(urlencode(page_query), quote=True), label))
-    page_controls = '<p class="pagination">Page {} of {}{}</p>'.format(page, page_count, " · " + " · ".join(pagination) if pagination else "")
+    preserved = {"action": action, "sort": selected_sort, "direction": direction}
+    if query:
+        preserved["q"] = query
+    if enabled_filter:
+        preserved["enabled"] = enabled_filter
+    hidden_inputs = "".join(
+        '<input type="hidden" name="{}" value="{}">'.format(html.escape(name, quote=True), html.escape(value, quote=True))
+        for name, value in preserved.items()
+    )
+    page_options = "".join(
+        '<option value="{}"{}>{}</option>'.format(number, " selected" if number == page else "", number)
+        for number in range(1, page_count + 1)
+    )
+    page_controls = '<form class="pagination" method="get">{}<label class="visually-hidden">Page</label><select name="page" aria-label="Page" onchange="this.form.submit()">{}</select> of {}{}<noscript> <button type="submit">Go</button></noscript></form>'.format(
+        hidden_inputs, page_options, page_count, " · " + " · ".join(pagination) if pagination else ""
+    )
     summary = '<div class="list-summary"><span>{} matching record(s)</span>{}</div>'.format(len(sorted_records), page_controls)
     return '{}{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>{}'.format(
         _catalog_status_controls(action, params), summary, headings, rows, page_controls
