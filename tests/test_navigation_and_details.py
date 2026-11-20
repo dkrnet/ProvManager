@@ -101,3 +101,44 @@ def test_detail_page_redacts_sensitive_keys(tmp_path: Path) -> None:
     assert b"also-hidden" not in response.body
     assert response.body.count(b"[redacted]") == 2
     assert b"locale=en_US" in response.body
+
+
+def test_host_detail_links_named_catalog_references_in_role_order(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.installers_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: installer-1, name: Example Linux}\n", encoding="utf-8",
+    )
+    Path(config.templates_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: template-1, name: Standard Build}\n", encoding="utf-8",
+    )
+    Path(config.roles_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: role-1, name: Base}\n  - {id: role-2, name: Monitoring}\n", encoding="utf-8",
+    )
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n  - id: host-1\n    hostname: host.example\n    installer_id: installer-1\n    template_id: template-1\n    role_ids: [role-2, role-1]\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read"}))
+    response = _dispatch("action=host_view&id=host-1", viewer, config)
+    assert b"?action=installer_view&amp;id=installer-1" in response.body
+    assert b">Example Linux</a>" in response.body
+    assert b"?action=template_view&amp;id=template-1" in response.body
+    assert response.body.index(b">Monitoring</a>") < response.body.index(b">Base</a>")
+
+
+def test_catalog_detail_lists_inbound_dependencies(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.installers_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: installer-1, name: Example Linux}\n", encoding="utf-8",
+    )
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: host-1, hostname: host.example, installer_id: installer-1}\n", encoding="utf-8",
+    )
+    Path(config.templates_file).write_text(
+        "schema_version: 1\nrecords:\n  - {id: template-1, name: Standard Build, installer_id: installer-1}\n", encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"catalogs_read", "hosts_read"}))
+    response = _dispatch("action=installer_view&id=installer-1", viewer, config)
+    assert b"Referenced by" in response.body
+    assert b"?action=host_view&amp;id=host-1" in response.body
+    assert b"?action=template_view&amp;id=template-1" in response.body

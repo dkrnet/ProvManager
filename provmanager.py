@@ -590,16 +590,63 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
     )
 
 
-def _record_detail(record: Dict[str, Any]) -> str:
+def _record_link(action: str, record: Dict[str, Any]) -> str:
+    label = record.get("hostname") or record.get("name") or record["id"]
+    detail_action = {"hosts": "host_view", "installers": "installer_view", "roles": "role_view", "templates": "template_view"}[action]
+    return '<a href="?action={}&amp;id={}">{}</a>'.format(
+        detail_action, html.escape(str(record["id"]), quote=True), html.escape(str(label))
+    )
+
+
+def _reference_value(key: str, value: Any, catalogs: Mapping[str, List[Dict[str, Any]]]) -> Optional[str]:
+    reference_types = {"installer_id": "installers", "template_id": "templates"}
+    if key in reference_types and isinstance(value, str):
+        action = reference_types[key]
+        target = next((record for record in catalogs[action] if record["id"] == value), None)
+        return _record_link(action, target) if target is not None else '{} <strong>(missing)</strong>'.format(html.escape(value))
+    if key == "role_ids" and isinstance(value, list):
+        roles = {record["id"]: record for record in catalogs["roles"]}
+        links = []
+        for role_id in value:
+            target = roles.get(role_id)
+            links.append(_record_link("roles", target) if target is not None else '{} <strong>(missing)</strong>'.format(html.escape(str(role_id))))
+        return ", ".join(links) if links else "—"
+    return None
+
+
+def _dependency_section(catalog_action: str, record: Dict[str, Any], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
+    record_id = record["id"]
+    dependencies = []
+    if catalog_action == "installers":
+        dependencies.extend(("hosts", item) for item in catalogs["hosts"] if item.get("installer_id") == record_id)
+        dependencies.extend(("templates", item) for item in catalogs["templates"] if item.get("installer_id") == record_id)
+    elif catalog_action == "roles":
+        dependencies.extend(("hosts", item) for item in catalogs["hosts"] if record_id in item.get("role_ids", []))
+        dependencies.extend(("templates", item) for item in catalogs["templates"] if record_id in item.get("role_ids", []))
+    elif catalog_action == "templates":
+        dependencies.extend(("hosts", item) for item in catalogs["hosts"] if item.get("template_id") == record_id)
+    if catalog_action == "hosts":
+        return ""
+    if not dependencies:
+        return "<h2>Referenced by</h2><p>No records reference this item.</p>"
+    items = "".join("<li>{}: {}</li>".format(html.escape(action.rstrip("s").title()), _record_link(action, item)) for action, item in dependencies)
+    return "<h2>Referenced by</h2><ul>{}</ul>".format(items)
+
+
+def _record_detail(catalog_action: str, record: Dict[str, Any], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
     rows = []
     for key in sorted(record):
-        rendered_value = render_markdown(str(record[key])) if key == "description" else html.escape(_display_value(record[key], key))
+        reference = _reference_value(key, record[key], catalogs)
+        if reference is not None:
+            rendered_value = reference
+        else:
+            rendered_value = render_markdown(str(record[key])) if key == "description" else html.escape(_display_value(record[key], key))
         rows.append(
             "<tr><th scope=\"row\">{}</th><td>{}</td></tr>".format(
                 html.escape(key.replace("_", " ").title()), rendered_value
             )
         )
-    return "<table><tbody>{}</tbody></table>".format("".join(rows))
+    return "<table><tbody>{}</tbody></table>{}".format("".join(rows), _dependency_section(catalog_action, record, catalogs))
 
 
 def render_markdown(source: str) -> str:
@@ -720,14 +767,24 @@ def dispatch(
         if not record_id:
             return _html_response("Invalid request", "<p>A record ID is required.</p>", "400 Bad Request", public=False, identity=identity, config=active)
         try:
-            records = load_catalog(getattr(active, path_field))
+            catalogs = {
+                catalog_name: load_catalog(getattr(active, catalog_definition[1]))
+                for catalog_name, catalog_definition in CATALOG_ACTIONS.items()
+            }
+            records = catalogs[catalog_action]
         except CatalogError as error:
             return _html_response(singular_title, "<p>{}</p>".format(html.escape(str(error))), "500 Internal Server Error", public=False, identity=identity, config=active)
         record = next((item for item in records if item["id"] == record_id), None)
         if record is None:
             return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
         display_name = record.get("hostname") or record.get("name") or record["id"]
-        return _html_response("{}: {}".format(singular_title, display_name), _record_detail(record), public=False, identity=identity, config=active)
+        return _html_response(
+            "{}: {}".format(singular_title, display_name),
+            _record_detail(catalog_action, record, catalogs),
+            public=False,
+            identity=identity,
+            config=active,
+        )
     if action == "validate":
         return _html_response("Validation", _findings_table(validate_catalogs(active)), public=False, identity=identity, config=active)
     if action == "markdown_help":
