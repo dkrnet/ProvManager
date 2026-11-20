@@ -131,7 +131,7 @@ def test_status_filter_is_left_aligned_below_page_heading(tmp_path: Path) -> Non
     status = response.body.index(b'<form class="status-filter"')
     summary = response.body.index(b'<div class="list-summary">')
     assert heading < status < summary
-    assert b".status-filter{display:flex;justify-content:flex-start" in response.body
+    assert b".status-filter,.validation-filter{display:flex;justify-content:flex-start" in response.body
     status_end = response.body.index(b"</form>", status)
     status_form = response.body[status:status_end]
     assert b'name="q" value="alpha"' in status_form

@@ -410,6 +410,7 @@ def _navigation(identity: Identity) -> str:
         ("catalogs_read", "Installers", "installers"),
         ("catalogs_read", "Ansible Roles", "roles"),
         ("catalogs_read", "Templates", "templates"),
+        ("preview", "Validate", "validate"),
         ("operations_read", "Operations", "operations"),
         ("settings_read", "Settings", "settings"),
         ("audit_read", "Audit Log", "audit"),
@@ -432,7 +433,7 @@ def _html_page(title: str, content: str, public: bool = True, identity: Optional
     document = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{0} · ProvManager</title><link rel="icon" href="?action=favicon">
-<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}.utility-row{{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}}.welcome{{margin:.5rem 0}}.catalog-search{{display:flex;justify-content:flex-end;align-items:center;font-size:.9rem}}.visually-hidden{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}.status-filter label{{display:inline;margin:0}}.status-filter{{display:flex;justify-content:flex-start;align-items:center;gap:.4rem;font-size:.9rem;margin-bottom:.6rem}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.list-summary{{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}}.pagination{{font-size:.82rem;text-align:right;margin:.5rem 0}}.pagination select{{font-size:inherit;padding:.1rem .25rem}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
+<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}.utility-row{{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}}.welcome{{margin:.5rem 0}}.catalog-search{{display:flex;justify-content:flex-end;align-items:center;font-size:.9rem}}.visually-hidden{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}.status-filter label,.validation-filter label{{display:inline;margin:0}}.status-filter,.validation-filter{{display:flex;justify-content:flex-start;align-items:center;gap:.4rem;font-size:.9rem;margin-bottom:.6rem}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.list-summary{{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}}.pagination{{font-size:.82rem;text-align:right;margin:.5rem 0}}.pagination select{{font-size:inherit;padding:.1rem .25rem}}.finding-summary{{display:flex;gap:.75rem;flex-wrap:wrap;margin:.75rem 0}}.severity{{display:inline-block;padding:.1rem .4rem;border-radius:.25rem;font-size:.78rem;font-weight:600}}.severity-error{{background:#f8d7da;color:#842029}}.severity-warning{{background:#fff3cd;color:#664d03}}.severity-information{{background:#cff4fc;color:#055160}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
 <body><header>ProvManager</header><main><div class="utility-row">{3}{5}</div>{4}<h1>{0}</h1>{1}</main>{2}</body></html>""".format(
         html.escape(title), content, footer, welcome, navigation, top_controls
     )
@@ -685,14 +686,59 @@ fenced code block
     )
 
 
-def _findings_table(findings: List[Finding]) -> str:
-    rows = "".join(
-        "<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(
-            html.escape(finding.severity.title()), html.escape(finding.resource), html.escape(finding.message)
-        )
-        for finding in findings
+def _validation_catalogs(config: Config) -> Dict[str, List[Dict[str, Any]]]:
+    catalogs = {}
+    for action, definition in CATALOG_ACTIONS.items():
+        try:
+            catalogs[action] = load_catalog(getattr(config, definition[1]))
+        except CatalogError:
+            catalogs[action] = []
+    return catalogs
+
+
+def _finding_resource(resource: str, catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
+    for action in ("hosts", "installers", "roles", "templates"):
+        for record in catalogs[action]:
+            labels = {str(record["id"]), str(record.get("hostname", "")), str(record.get("name", ""))}
+            if resource in labels:
+                return _record_link(action, record)
+    return html.escape(resource)
+
+
+def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
+    selected_severity = _query_value(params, "severity").casefold()
+    resource_query = _query_value(params, "resource")
+    filtered = findings
+    if selected_severity in {"error", "warning", "information"}:
+        filtered = [finding for finding in filtered if finding.severity == selected_severity]
+    if resource_query:
+        needle = resource_query.casefold()
+        filtered = [finding for finding in filtered if needle in finding.resource.casefold() or needle in finding.message.casefold()]
+    counts = {severity: sum(1 for finding in findings if finding.severity == severity) for severity in ("error", "warning", "information")}
+    summary = '<div class="finding-summary"><span class="severity severity-error">{} Errors</span><span class="severity severity-warning">{} Warnings</span><span class="severity severity-information">{} Information</span></div>'.format(
+        counts["error"], counts["warning"], counts["information"]
     )
-    return '<p>Read-only validation; no files were changed.</p><table><thead><tr><th scope="col">Severity</th><th scope="col">Resource</th><th scope="col">Finding</th></tr></thead><tbody>{}</tbody></table>'.format(rows)
+    options = "".join(
+        '<option value="{}"{}>{}</option>'.format(value, " selected" if selected_severity == value else "", label)
+        for value, label in (("", "All severities"), ("error", "Errors"), ("warning", "Warnings"), ("information", "Information"))
+    )
+    controls = '<form class="validation-filter" method="get"><input type="hidden" name="action" value="validate"><label for="severity-filter">Severity</label><select id="severity-filter" name="severity">{}</select><label for="resource-filter">Resource</label><input id="resource-filter" name="resource" value="{}"><button type="submit">Filter</button><a href="?action=validate">Reset</a></form>'.format(
+        options, html.escape(resource_query, quote=True)
+    )
+    rows = "".join(
+        '<tr><td><span class="severity severity-{}">{}</span></td><td>{}</td><td>{}</td></tr>'.format(
+            finding.severity,
+            html.escape(finding.severity.title()),
+            _finding_resource(finding.resource, catalogs),
+            html.escape(finding.message),
+        )
+        for finding in filtered
+    )
+    if not rows:
+        rows = '<tr><td colspan="3">No validation findings match the selected filters.</td></tr>'
+    return '<p>Read-only validation; no files were changed.</p>{}{}<p>{} matching finding(s)</p><table><thead><tr><th scope="col">Severity</th><th scope="col">Resource</th><th scope="col">Finding</th></tr></thead><tbody>{}</tbody></table>'.format(
+        summary, controls, len(filtered), rows
+    )
 
 
 def _login(config: Config) -> Response:
@@ -786,7 +832,14 @@ def dispatch(
             config=active,
         )
     if action == "validate":
-        return _html_response("Validation", _findings_table(validate_catalogs(active)), public=False, identity=identity, config=active)
+        findings = validate_catalogs(active)
+        return _html_response(
+            "Validation",
+            _findings_table(findings, params, _validation_catalogs(active)),
+            public=False,
+            identity=identity,
+            config=active,
+        )
     if action == "markdown_help":
         return _html_response("Markdown Help", _markdown_help(), public=False, identity=identity, config=active)
     if action in ACTION_CAPABILITIES:
