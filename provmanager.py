@@ -419,7 +419,7 @@ def _navigation(identity: Identity) -> str:
     return "<nav>{}</nav>".format(" | ".join(links))
 
 
-def _html_page(title: str, content: str, public: bool = True, identity: Optional[Identity] = None, config: Optional[Config] = None) -> bytes:
+def _html_page(title: str, content: str, public: bool = True, identity: Optional[Identity] = None, config: Optional[Config] = None, top_controls: str = "") -> bytes:
     footer = "" if public else '<footer>ProvManager {}</footer>'.format(html.escape(PROVMANAGER_VERSION))
     welcome = ""
     navigation = ""
@@ -432,18 +432,18 @@ def _html_page(title: str, content: str, public: bool = True, identity: Optional
     document = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{0} · ProvManager</title><link rel="icon" href="?action=favicon">
-<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
-<body><header>ProvManager</header><main>{3}{4}<h1>{0}</h1>{1}</main>{2}</body></html>""".format(
-        html.escape(title), content, footer, welcome, navigation
+<style>body{{font-family:system-ui,sans-serif;margin:2rem;line-height:1.45}}header{{height:35px;background:linear-gradient(90deg,#E6E9EF,transparent);color:#7b8290;padding:.5rem 1rem}}main{{max-width:70rem;margin:1.5rem auto}}.utility-row{{display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap}}.welcome{{margin:.5rem 0}}.catalog-search{{display:flex;justify-content:flex-end;align-items:center;font-size:.9rem}}.visually-hidden{{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}}.status-filter label{{display:inline;margin:0}}.status-filter{{display:flex;justify-content:flex-start;align-items:center;gap:.4rem;font-size:.9rem;margin-bottom:.6rem}}nav{{display:flex;gap:.8rem;flex-wrap:wrap}}table{{border-collapse:collapse;width:100%;font-size:.9rem}}th,td{{padding:.4rem;text-align:left;border-bottom:1px solid #ddd;vertical-align:top}}.list-summary{{display:flex;justify-content:space-between;align-items:center;gap:1rem;font-size:.82rem}}.pagination{{font-size:.82rem;text-align:right;margin:.5rem 0}}.pagination select{{font-size:inherit;padding:.1rem .25rem}}label{{display:block;margin-top:.8rem}}input{{padding:.4rem}}footer{{text-align:center;color:#667;margin-top:3rem}}</style></head>
+<body><header>ProvManager</header><main><div class="utility-row">{3}{5}</div>{4}<h1>{0}</h1>{1}</main>{2}</body></html>""".format(
+        html.escape(title), content, footer, welcome, navigation, top_controls
     )
     return document.encode("utf-8")
 
 
-def _html_response(title: str, content: str, status: str = "200 OK", public: bool = True, identity: Optional[Identity] = None, config: Optional[Config] = None) -> Response:
+def _html_response(title: str, content: str, status: str = "200 OK", public: bool = True, identity: Optional[Identity] = None, config: Optional[Config] = None, top_controls: str = "") -> Response:
     return Response(
         status,
         (("Content-Type", "text/html; charset=utf-8"), ("Cache-Control", "no-store")),
-        _html_page(title, content, public, identity, config),
+        _html_page(title, content, public, identity, config, top_controls),
     )
 
 
@@ -480,6 +480,31 @@ def _page_number(raw_value: str, page_count: int) -> int:
     except (TypeError, ValueError):
         requested = 1
     return min(max(requested, 1), max(page_count, 1))
+
+
+def _catalog_search_controls(action: str, params: Mapping[str, List[str]]) -> str:
+    query = _query_value(params, "q")
+    enabled_filter = _query_value(params, "enabled").casefold()
+    enabled_input = '<input type="hidden" name="enabled" value="{}">'.format(html.escape(enabled_filter, quote=True)) if enabled_filter else ""
+    return """<form class="catalog-search" method="get"><input type="hidden" name="action" value="{action}">{enabled_input}
+<label class="visually-hidden" for="catalog-search">Search</label><input id="catalog-search" name="q" value="{query}" placeholder="Search" type="search"></form>""".format(
+        action=action, enabled_input=enabled_input, query=html.escape(query, quote=True)
+    )
+
+
+def _catalog_status_controls(action: str, params: Mapping[str, List[str]]) -> str:
+    query = _query_value(params, "q")
+    enabled_filter = _query_value(params, "enabled").casefold()
+    query_input = '<input type="hidden" name="q" value="{}">'.format(html.escape(query, quote=True)) if query else ""
+    return """<form class="status-filter" method="get"><input type="hidden" name="action" value="{action}">{query_input}
+<label for="enabled-filter">Status</label><select id="enabled-filter" name="enabled">
+<option value="">All</option><option value="true"{true_selected}>Enabled</option><option value="false"{false_selected}>Disabled</option>
+</select><button type="submit">Filter</button><a href="?action={action}">Reset</a></form>""".format(
+        action=action,
+        query_input=query_input,
+        true_selected=" selected" if enabled_filter == "true" else "",
+        false_selected=" selected" if enabled_filter == "false" else "",
+    )
 
 
 def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config) -> str:
@@ -534,16 +559,6 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
                 cells.append("<td>{}</td>".format(value))
             rendered_rows.append("<tr>{}</tr>".format("".join(cells)))
         rows = "".join(rendered_rows)
-    controls = """<form method="get"><input type="hidden" name="action" value="{action}">
-<label for="catalog-search">Search</label> <input id="catalog-search" name="q" value="{query}">
-<label for="enabled-filter">Status</label> <select id="enabled-filter" name="enabled">
-<option value="">All</option><option value="true"{true_selected}>Enabled</option><option value="false"{false_selected}>Disabled</option>
-</select> <button type="submit">Filter</button> <a href="?action={action}">Reset</a></form>""".format(
-        action=action,
-        query=html.escape(query, quote=True),
-        true_selected=" selected" if enabled_filter == "true" else "",
-        false_selected=" selected" if enabled_filter == "false" else "",
-    )
     pagination = []
     for target, label in ((page - 1, "Previous"), (page + 1, "Next")):
         if 1 <= target <= page_count:
@@ -553,9 +568,25 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
             if enabled_filter:
                 page_query["enabled"] = enabled_filter
             pagination.append('<a href="?{}">{}</a>'.format(html.escape(urlencode(page_query), quote=True), label))
-    page_controls = '<p>Page {} of {}{}</p>'.format(page, page_count, " · " + " · ".join(pagination) if pagination else "")
-    return '{}<p>{} matching record(s)</p>{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>'.format(
-        controls, len(sorted_records), page_controls, headings, rows
+    preserved = {"action": action, "sort": selected_sort, "direction": direction}
+    if query:
+        preserved["q"] = query
+    if enabled_filter:
+        preserved["enabled"] = enabled_filter
+    hidden_inputs = "".join(
+        '<input type="hidden" name="{}" value="{}">'.format(html.escape(name, quote=True), html.escape(value, quote=True))
+        for name, value in preserved.items()
+    )
+    page_options = "".join(
+        '<option value="{}"{}>{}</option>'.format(number, " selected" if number == page else "", number)
+        for number in range(1, page_count + 1)
+    )
+    page_controls = '<form class="pagination" method="get">{}<label class="visually-hidden">Page</label><select name="page" aria-label="Page" onchange="this.form.submit()">{}</select> of {}{}<noscript> <button type="submit">Go</button></noscript></form>'.format(
+        hidden_inputs, page_options, page_count, " · " + " · ".join(pagination) if pagination else ""
+    )
+    summary = '<div class="list-summary"><span>{} matching record(s)</span>{}</div>'.format(len(sorted_records), page_controls)
+    return '{}{}<table><thead><tr>{}</tr></thead><tbody>{}</tbody></table>{}'.format(
+        _catalog_status_controls(action, params), summary, headings, rows, page_controls
     )
 
 
@@ -674,7 +705,14 @@ def dispatch(
         except CatalogError as error:
             content = "<p>{}</p>".format(html.escape(str(error)))
             return _html_response(title, content, "500 Internal Server Error", public=False, identity=identity, config=active)
-        return _html_response(title, _catalog_table(action, records, params, active), public=False, identity=identity, config=active)
+        return _html_response(
+            title,
+            _catalog_table(action, records, params, active),
+            public=False,
+            identity=identity,
+            config=active,
+            top_controls=_catalog_search_controls(action, params),
+        )
     if action in DETAIL_ACTIONS:
         catalog_action, singular_title = DETAIL_ACTIONS[action]
         _catalog_title, path_field, _sort_field, _columns = CATALOG_ACTIONS[catalog_action]
