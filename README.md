@@ -150,6 +150,14 @@ python3 -m venv .venv
 
 The optional site configuration is plain `KEY=value` data and must not be sourced as shell code. Unknown keys are ignored. Invalid values retain safe defaults and produce an administrative diagnostic.
 
+File-backed installer sources should be constrained with a comma-separated list of approved absolute roots, for example:
+
+```ini
+INSTALLER_ROOTS=/mnt/installers,/srv/installers
+```
+
+With no configured installer root, readable installer paths remain available for read-only inspection but produce a validation warning.
+
 ### Build output
 
 Run `./build.sh` for a development version such as `1.0.0-dev.N+GITID`, or `./build.sh --release` for `1.0.0+GITID`. Output is written to `build/` by default. Set `PROVMANAGER_BUILD_DIR` to select another application-owned output directory. The script stamps only the copied output and leaves the source version unchanged.

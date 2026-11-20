@@ -5,6 +5,9 @@ INSTALLERS_FILE=/data/provisioning/installers.yaml
 ROLES_FILE=/data/provisioning/roles.yaml
 TEMPLATES_FILE=/data/provisioning/templates.yaml
 AUDIT_LOG_FILE=/var/log/provmanager/audit.log
+# Comma-separated absolute directories containing file-backed installer sources.
+# Leave empty to permit read-only inspection with a validation warning.
+INSTALLER_ROOTS=
 TFTP_ROOT=/var/lib/tftpboot/efi/
 DHCP_CONFIG_FILE=/etc/dhcp/dhcpd.conf
 KICKSTART_ROOT=/data/provisioning/kickstart/
