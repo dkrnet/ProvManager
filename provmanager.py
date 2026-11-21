@@ -106,7 +106,7 @@ class Config:
     banner_file: str = ""
     banner_dimensions: str = ""
     favicon_mime_type: str = "image/x-icon"
-    auth_form_action: str = "/login"
+    auth_form_action: str = "/provmanager-login"
     auth_form_username_field: str = "httpd_username"
     auth_form_password_field: str = "httpd_password"
     auth_form_location_field: str = "httpd_location"

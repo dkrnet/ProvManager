@@ -22,6 +22,16 @@ def test_sample_configuration_contains_every_supported_key() -> None:
     assert configured == expected
 
 
+def test_apache_example_uses_isolated_login_and_scoped_session_settings() -> None:
+    example = (ROOT / "provmanager-form-auth.conf.example").read_text(encoding="utf-8")
+    first_location = example.index("<Location ")
+    assert '<Location "/provmanager-login">' in example
+    assert '<Location "/login">' not in example
+    assert "Session On" not in example[:first_location]
+    assert example.count("SessionCookieName provmanager_session") == 3
+    assert example.count("SessionMaxAge 28800") == 3
+
+
 def test_build_stamps_copy_without_modifying_source(tmp_path: Path) -> None:
     source_before = (ROOT / "provmanager.py").read_bytes()
     environment = os.environ.copy()

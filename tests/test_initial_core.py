@@ -39,6 +39,7 @@ def test_default_request_without_user_shows_login() -> None:
     response = dispatch({"QUERY_STRING": ""})
     assert response.status == "200 OK"
     assert b"Sign in to continue" in response.body
+    assert b'<form method="post" action="/provmanager-login">' in response.body
     assert b"ProvManager 1.0.0" not in response.body
 
 
