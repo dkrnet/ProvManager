@@ -68,7 +68,7 @@ The following names define the application's configuration and defaults. Constan
 | `PM_VIEWERS_GROUP` | `pm_viewers` | Read-only provisioning viewers |
 | `BANNER_FILE` | empty | Optional banner image URL/path |
 | `BANNER_DIMENSIONS` | empty | Optional `WIDTHxHEIGHT` |
-| `FAVICON_MIME_TYPE` | `image/x-icon` | Embedded favicon type |
+| `FAVICON_MIME_TYPE` | `image/x-icon` | Embedded multi-size favicon type |
 | `AUTH_FORM_ACTION` | `/provmanager-login` | External form-auth endpoint |
 | `AUTH_FORM_USERNAME_FIELD` | `httpd_username` | Login username input |
 | `AUTH_FORM_PASSWORD_FIELD` | `httpd_password` | Login password input |

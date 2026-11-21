@@ -55,7 +55,14 @@ def test_default_request_without_user_shows_login() -> None:
 def test_favicon_is_public_and_nonempty() -> None:
     response = dispatch({"QUERY_STRING": "action=favicon"})
     assert response.status == "200 OK"
-    assert response.body
+    assert ("Content-Type", "image/x-icon") in response.headers
+    assert response.body[:6] == b"\x00\x00\x01\x00\x06\x00"
+    sizes = set()
+    for index in range(6):
+        width = response.body[6 + index * 16]
+        height = response.body[7 + index * 16]
+        sizes.add((256 if width == 0 else width, 256 if height == 0 else height))
+    assert sizes == {(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)}
 
 
 def test_login_failed_and_logged_out_link_back_to_login() -> None:
