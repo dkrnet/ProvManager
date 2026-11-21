@@ -52,6 +52,7 @@ The following names define the application's configuration and defaults. Constan
 | `ROLES_FILE` | `/data/provisioning/roles.yaml` | Ansible role catalog/metadata |
 | `TEMPLATES_FILE` | `/data/provisioning/templates.yaml` | Provisioning template catalog |
 | `AUDIT_LOG_FILE` | `/var/log/provmanager/audit.log` | Persistent audit log |
+| `INSTALLER_ROOTS` | empty | Comma-separated approved roots for file-backed installer sources |
 | `TFTP_ROOT` | `/var/lib/tftpboot/efi/` | EFI/TFTP boot root |
 | `DHCP_CONFIG_FILE` | `/etc/dhcp/dhcpd.conf` | Managed DHCP configuration target |
 | `KICKSTART_ROOT` | `/data/provisioning/kickstart/` | Kickstart source/generated files |
@@ -85,6 +86,7 @@ The following names define the application's configuration and defaults. Constan
 - Executable paths for optional validators, Ansible commands, and service reloads shall be explicit configuration keys with administrator-controlled absolute paths; no built-in default shall run a service-management operation.
 - Command arguments that identify targets, inventories, or templates shall be assembled as validated argument arrays; never interpolated into shell commands.
 - Installer root allowlists, mount roots, permitted image extensions, network interfaces, managed DHCP section boundaries, and provisioning job locations shall be declared in configuration before related operations can execute.
+- `INSTALLER_ROOTS` shall accept a comma-separated list of absolute directory paths. Empty means no installer root is approved for operational use; read-only validation may inspect an existing absolute source path but shall report the missing allowlist as a warning.
 
 # Site Configuration File
 

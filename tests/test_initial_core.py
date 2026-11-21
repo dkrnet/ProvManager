@@ -25,14 +25,23 @@ def test_missing_configuration_uses_safe_defaults(tmp_path: Path) -> None:
 def test_configuration_parses_supported_values_and_rejects_unsafe_ones(tmp_path: Path) -> None:
     path = tmp_path / "provmanager.conf"
     path.write_text(
-        "LIST_PAGE_SIZE=25\nENABLE_SERVICE_RELOAD=yes\nHOSTS_FILE=relative.yaml\nUNKNOWN_KEY=value\n",
+        "LIST_PAGE_SIZE=25\nENABLE_SERVICE_RELOAD=yes\nINSTALLER_ROOTS=/mnt/installers, /srv/installers\nHOSTS_FILE=relative.yaml\nUNKNOWN_KEY=value\n",
         encoding="utf-8",
     )
     config, diagnostics = load_config(str(path))
     assert config.list_page_size == 25
     assert config.enable_service_reload is True
+    assert config.installer_roots == ("/mnt/installers", "/srv/installers")
     assert config.hosts_file == Config().hosts_file
     assert diagnostics == ("Ignored invalid value for HOSTS_FILE.",)
+
+
+def test_configuration_rejects_relative_installer_root(tmp_path: Path) -> None:
+    path = tmp_path / "provmanager.conf"
+    path.write_text("INSTALLER_ROOTS=/mnt/installers,relative/path\n", encoding="utf-8")
+    config, diagnostics = load_config(str(path))
+    assert config.installer_roots == ()
+    assert diagnostics == ("Ignored invalid value for INSTALLER_ROOTS.",)
 
 
 def test_default_request_without_user_shows_login() -> None:

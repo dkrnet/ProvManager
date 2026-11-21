@@ -89,6 +89,7 @@ class Config:
     roles_file: str = "/data/provisioning/roles.yaml"
     templates_file: str = "/data/provisioning/templates.yaml"
     audit_log_file: str = "/var/log/provmanager/audit.log"
+    installer_roots: Tuple[str, ...] = ()
     tftp_root: str = "/var/lib/tftpboot/efi/"
     dhcp_config_file: str = "/etc/dhcp/dhcpd.conf"
     kickstart_root: str = "/data/provisioning/kickstart/"
@@ -288,8 +289,10 @@ def validate_catalogs(config: Config) -> List[Finding]:
             findings.append(Finding("error", resource, "Installer source path must be absolute."))
         elif not os.path.exists(path) or not os.access(path, os.R_OK):
             findings.append(Finding("error", resource, "Installer source path is not readable."))
-        else:
+        elif not config.installer_roots:
             findings.append(Finding("warning", resource, "Installer path is readable, but no installer-root allowlist is specified yet."))
+        elif not any(_inside(path, root) for root in config.installer_roots):
+            findings.append(Finding("error", resource, "Installer source path is outside the approved installer roots."))
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return findings
@@ -326,6 +329,7 @@ _PATH_FIELDS = frozenset(
     name for name in _CONFIG_KEYS.values() if name.endswith(("_file", "_dir", "_root"))
 )
 _BOOL_FIELDS = frozenset({"enable_provisioning_execution", "enable_service_reload"})
+_PATH_LIST_FIELDS = frozenset({"installer_roots"})
 _INT_FIELDS = frozenset(
     {"list_page_size", "search_history_limit", "max_description_chars", "max_template_bytes"}
 )
@@ -372,6 +376,11 @@ def load_config(path: Optional[str] = None, defaults: Optional[Config] = None) -
                 if normalized not in _TRUE | _FALSE:
                     raise ValueError
                 parsed = normalized in _TRUE
+            elif field_name in _PATH_LIST_FIELDS:
+                entries = tuple(item.strip() for item in value.split(",") if item.strip())
+                if any(not os.path.isabs(item) for item in entries):
+                    raise ValueError
+                parsed = entries
             elif field_name in _INT_FIELDS:
                 parsed = int(value)
                 if parsed <= 0:
