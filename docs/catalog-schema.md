@@ -26,6 +26,12 @@ records:
     enabled: true
 ```
 
+Installer source fields depend on `source_type`:
+
+- `tree`: `source_path` is an absolute readable directory beneath `INSTALLER_ROOTS`.
+- `iso`: `iso_path` is an absolute readable `.iso` file beneath `INSTALLER_ROOTS`.
+- `network`: `source_path` is a credential-free HTTP(S) URL. Validation does not contact it.
+
 ```yaml
 schema_version: 1
 records:

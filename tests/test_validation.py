@@ -115,7 +115,7 @@ def test_installer_path_inside_configured_root_has_no_allowlist_finding(tmp_path
     source = root / "rocky9"
     source.mkdir(parents=True)
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Rocky 9, source_path: '" + str(source) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Rocky 9, source_type: tree, source_path: '" + str(source) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert not any("installer-root allowlist" in message for message in messages)
     assert "Installer source path is outside the approved installer roots." not in messages
@@ -128,7 +128,7 @@ def test_installer_path_outside_configured_root_is_error(tmp_path: Path) -> None
     outside = tmp_path / "outside"
     outside.mkdir()
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Outside, source_path: '" + str(outside) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Outside, source_type: tree, source_path: '" + str(outside) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert "Installer source path is outside the approved installer roots." in messages
 
@@ -142,6 +142,6 @@ def test_installer_symlink_cannot_escape_configured_root(tmp_path: Path) -> None
     link = root / "escaped"
     link.symlink_to(outside, target_is_directory=True)
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Escaped, source_path: '" + str(link) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Escaped, source_type: tree, source_path: '" + str(link) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert "Installer source path is outside the approved installer roots." in messages

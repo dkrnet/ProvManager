@@ -230,6 +230,7 @@ Ensure group enumeration covers a user's primary group and supplementary members
 - Verify hostnames are normalized for case-insensitive uniqueness and validated as DNS names; validate MAC normalization/uniqueness, IPv4/IPv6 parsing, and managed-network active-address uniqueness.
 - Verify host state values and enabled status obey the documented readiness/dependency rules; a record may be incomplete without incorrectly being marked `ready`.
 - Verify installer `source_type` enumeration (`iso`, `tree`, `network`), architecture, boot modes, required source paths and boot files, enabled flag, and allowlist controls.
+- Verify tree sources require readable approved directories, ISO sources require readable approved `.iso` files without mounting them, and network sources accept only credential-free HTTP(S) URLs without fragments or network access.
 - Verify role catalog paths, version/metadata, enabled flag, role variable constraints, and host/template role order.
 - Verify template types (`kickstart`, `boot`, `ansible`, supported additional types), source path/content fields, content size limit, approved variable names, referenced roles/installer, and allowed renderers.
 - Check inherited references when record names change: dependent resources must continue referencing stable IDs.

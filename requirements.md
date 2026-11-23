@@ -231,6 +231,9 @@ Each host record shall support:
 An installer record shall support `id`, `name`, `description`, `os_family`, `os_version`, `architecture`, `source_type`, `source_path`, optional kernel/initrd/EFI boot paths, optional ISO path, supported boot modes, enabled flag, and common metadata.
 
 - Supported `source_type` values shall include `iso`, `tree`, and `network`; additional types require an explicit adapter.
+- A `tree` source shall use an absolute `source_path` naming a readable directory beneath an approved `INSTALLER_ROOTS` entry.
+- An `iso` source shall use an absolute `iso_path` naming a readable regular file with a case-insensitive `.iso` extension beneath an approved `INSTALLER_ROOTS` entry. Read-only validation shall never mount the image.
+- A `network` source shall use `source_path` as a credential-free `http` or `https` URL with a hostname and no fragment. Read-only validation shall parse the URL without contacting it.
 - File-backed paths shall resolve within configured allowlisted installer or TFTP roots; forbid `..` traversal and symlink escapes outside those roots.
 - Installer readiness validation shall check required paths, readable sources, architecture/boot-mode metadata, and referenced boot files without altering files.
 - An installer that is referenced by hosts/templates shall not be deleted without an explicit dependency resolution flow.
