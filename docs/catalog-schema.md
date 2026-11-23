@@ -61,7 +61,12 @@ records:
     name: default-kickstart
     template_type: kickstart
     content_path: /data/provisioning/kickstart/default.ks
+    installer_id: installer-001
     role_ids:
       - role-001
     enabled: true
 ```
+
+Template `installer_id` and ordered `role_ids` entries must reference records in
+their respective catalogs. Duplicate, malformed, or missing role references are
+reported by read-only validation.

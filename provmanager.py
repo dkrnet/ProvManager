@@ -330,6 +330,15 @@ def validate_catalogs(config: Config) -> List[Finding]:
         elif not os.path.isfile(path) or not os.access(path, os.R_OK):
             findings.append(Finding("error", resource, "Template content is not a readable file."))
 
+        installer_id = template.get("installer_id")
+        if installer_id and installer_id not in installers:
+            findings.append(Finding("error", resource, "Referenced installer does not exist."))
+        role_ids = template.get("role_ids", [])
+        if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
+            findings.append(Finding("error", resource, "Role references must be an ordered list without duplicates."))
+        elif any(role_id not in roles for role_id in role_ids):
+            findings.append(Finding("error", resource, "A referenced role does not exist."))
+
     for installer in catalogs["installers"]:
         findings.extend(_installer_source_findings(installer, config))
     if not findings:

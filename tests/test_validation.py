@@ -50,6 +50,40 @@ def test_host_validation_reports_invalid_fields_and_references(tmp_path: Path) -
     assert "Role references must be an ordered list without duplicates." in messages
 
 
+def test_template_validation_reports_invalid_installer_and_role_references(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "missing-references.ks"
+    content.write_text("# test template\n", encoding="utf-8")
+    _catalog(
+        Path(config.templates_file),
+        "  - id: template-1\n"
+        "    name: Missing references\n"
+        "    template_type: kickstart\n"
+        "    content_path: '" + str(content) + "'\n"
+        "    installer_id: missing-installer\n"
+        "    role_ids: [missing-role]\n",
+    )
+    messages = [finding.message for finding in validate_catalogs(config)]
+    assert "Referenced installer does not exist." in messages
+    assert "A referenced role does not exist." in messages
+
+
+def test_template_validation_rejects_malformed_or_duplicate_role_references(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "duplicate-roles.ks"
+    content.write_text("# test template\n", encoding="utf-8")
+    _catalog(
+        Path(config.templates_file),
+        "  - id: template-1\n"
+        "    name: Duplicate roles\n"
+        "    template_type: kickstart\n"
+        "    content_path: '" + str(content) + "'\n"
+        "    role_ids: [role-1, role-1]\n",
+    )
+    messages = [finding.message for finding in validate_catalogs(config)]
+    assert "Role references must be an ordered list without duplicates." in messages
+
+
 def test_role_symlink_escape_is_rejected(tmp_path: Path) -> None:
     config = _config(tmp_path)
     outside = tmp_path / "outside"
