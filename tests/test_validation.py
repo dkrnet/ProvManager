@@ -50,6 +50,41 @@ def test_host_validation_reports_invalid_fields_and_references(tmp_path: Path) -
     assert "Role references must be an ordered list without duplicates." in messages
 
 
+def test_template_validation_reports_invalid_installer_and_role_references(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "missing-references.ks"
+    content.write_text("# test template\n", encoding="utf-8")
+    _catalog(
+        Path(config.templates_file),
+        "  - id: template-1\n"
+        "    name: Missing references\n"
+        "    template_type: kickstart\n"
+        "    content_path: '" + str(content) + "'\n"
+        "    installer_id: missing-installer\n"
+        "    role_ids: [missing-role]\n",
+    )
+    messages = [finding.message for finding in validate_catalogs(config)]
+    assert "Referenced installer does not exist." in messages
+    assert "A referenced role does not exist." in messages
+
+
+def test_template_validation_reports_duplicate_and_missing_role_references(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "duplicate-roles.ks"
+    content.write_text("# test template\n", encoding="utf-8")
+    _catalog(
+        Path(config.templates_file),
+        "  - id: template-1\n"
+        "    name: Duplicate roles\n"
+        "    template_type: kickstart\n"
+        "    content_path: '" + str(content) + "'\n"
+        "    role_ids: [missing-role, missing-role]\n",
+    )
+    messages = [finding.message for finding in validate_catalogs(config)]
+    assert "Role references must be an ordered list without duplicates." in messages
+    assert "A referenced role does not exist." in messages
+
+
 def test_role_symlink_escape_is_rejected(tmp_path: Path) -> None:
     config = _config(tmp_path)
     outside = tmp_path / "outside"
@@ -115,7 +150,7 @@ def test_installer_path_inside_configured_root_has_no_allowlist_finding(tmp_path
     source = root / "rocky9"
     source.mkdir(parents=True)
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Rocky 9, source_path: '" + str(source) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Rocky 9, source_type: tree, source_path: '" + str(source) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert not any("installer-root allowlist" in message for message in messages)
     assert "Installer source path is outside the approved installer roots." not in messages
@@ -128,7 +163,7 @@ def test_installer_path_outside_configured_root_is_error(tmp_path: Path) -> None
     outside = tmp_path / "outside"
     outside.mkdir()
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Outside, source_path: '" + str(outside) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Outside, source_type: tree, source_path: '" + str(outside) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert "Installer source path is outside the approved installer roots." in messages
 
@@ -142,6 +177,6 @@ def test_installer_symlink_cannot_escape_configured_root(tmp_path: Path) -> None
     link = root / "escaped"
     link.symlink_to(outside, target_is_directory=True)
     config = replace(config, installer_roots=(str(root),))
-    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Escaped, source_path: '" + str(link) + "'}\n")
+    _catalog(Path(config.installers_file), "  - {id: installer-1, name: Escaped, source_type: tree, source_path: '" + str(link) + "'}\n")
     messages = [finding.message for finding in validate_catalogs(config)]
     assert "Installer source path is outside the approved installer roots." in messages

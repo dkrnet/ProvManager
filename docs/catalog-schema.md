@@ -26,6 +26,21 @@ records:
     enabled: true
 ```
 
+Installer source fields depend on `source_type`:
+
+- `tree`: `source_path` is an absolute readable directory beneath `INSTALLER_ROOTS`.
+- `iso`: `iso_path` is an absolute readable `.iso` file beneath `INSTALLER_ROOTS`.
+- `network`: `source_path` is a credential-free HTTP(S) URL. Validation does not contact it.
+
+File-backed source paths must not contain `..` traversal or control characters;
+tree directories must also be traversable. Network URLs require a valid DNS or
+IP hostname and must not contain whitespace.
+
+The initial installer-readiness profile supports only `architecture: x86_64`
+and `boot_modes: [uefi]`. `kernel_path`, `initrd_path`, and `efi_path` are
+required relative paths beneath `TFTP_ROOT`; validation rejects traversal and
+symlink escapes and requires all three resolved files to be readable.
+
 ```yaml
 schema_version: 1
 records:
@@ -34,8 +49,13 @@ records:
     os_family: example
     os_version: "1"
     architecture: x86_64
+    boot_modes:
+      - uefi
     source_type: tree
     source_path: /srv/install/example/1
+    kernel_path: example/1/vmlinuz
+    initrd_path: example/1/initrd.img
+    efi_path: example/1/BOOTX64.EFI
     enabled: true
 ```
 
@@ -55,7 +75,12 @@ records:
     name: default-kickstart
     template_type: kickstart
     content_path: /data/provisioning/kickstart/default.ks
+    installer_id: installer-001
     role_ids:
       - role-001
     enabled: true
 ```
+
+Template `installer_id` and ordered `role_ids` entries must reference records in
+their respective catalogs. Duplicate, malformed, or missing role references are
+reported by read-only validation.

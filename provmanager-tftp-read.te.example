@@ -1,0 +1,29 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+#
+# Read-only SELinux access from the ProvManager CGI domain to boot files that
+# retain their TFTP service label. Confirm the source domain in an AVC denial
+# before installing; replace httpd_sys_script_t if the local policy uses a
+# different confined domain for the CGI process.
+
+module provmanager_tftp_read 1.0;
+
+require {
+    type httpd_sys_script_t;
+    type tftpdir_rw_t;
+
+    class dir { getattr open read search };
+    class file { getattr open read };
+    class lnk_file { getattr read };
+}
+
+allow httpd_sys_script_t tftpdir_rw_t:dir {
+    getattr open read search
+};
+
+allow httpd_sys_script_t tftpdir_rw_t:file {
+    getattr open read
+};
+
+allow httpd_sys_script_t tftpdir_rw_t:lnk_file {
+    getattr read
+};

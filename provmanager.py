@@ -10,7 +10,7 @@ import pwd
 import re
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Tuple
-from urllib.parse import parse_qs, urlencode
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 try:
     import yaml
@@ -193,6 +193,95 @@ def _normalize_mac(value: Any) -> Optional[str]:
     return ":".join(compact[index:index + 2] for index in range(0, 12, 2))
 
 
+def _installer_path_findings(resource: str, path: Any, config: Config, expected: str) -> List[Finding]:
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return [Finding("error", resource, "Installer {} path must be absolute.".format(expected))]
+    if ".." in path.split(os.sep) or any(ord(character) < 32 or ord(character) == 127 for character in path):
+        return [Finding("error", resource, "Installer {} path contains traversal or control characters.".format(expected))]
+    if expected == "tree" and not os.path.isdir(path):
+        return [Finding("error", resource, "Installer tree path is not a readable directory.")]
+    if expected == "ISO" and (not os.path.isfile(path) or not path.casefold().endswith(".iso")):
+        return [Finding("error", resource, "Installer ISO path must be a readable .iso file.")]
+    access_mode = os.R_OK | os.X_OK if expected == "tree" else os.R_OK
+    if not os.access(path, access_mode):
+        return [Finding("error", resource, "Installer {} path is not readable.".format(expected))]
+    if not config.installer_roots:
+        return [Finding("warning", resource, "Installer path is readable, but no installer-root allowlist is specified yet.")]
+    if not any(_inside(path, root) for root in config.installer_roots):
+        return [Finding("error", resource, "Installer source path is outside the approved installer roots.")]
+    return []
+
+
+def _network_source_findings(resource: str, value: Any) -> List[Finding]:
+    if not isinstance(value, str) or not value or any(character.isspace() or ord(character) == 127 for character in value):
+        return [Finding("error", resource, "Network installer source must be a valid HTTP or HTTPS URL.")]
+    try:
+        parsed = urlsplit(value)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        return [Finding("error", resource, "Network installer source must be a valid HTTP or HTTPS URL.")]
+    valid_hostname = False
+    if hostname:
+        try:
+            ipaddress.ip_address(hostname)
+            valid_hostname = True
+        except ValueError:
+            valid_hostname = _valid_hostname(hostname)
+    if (
+        parsed.scheme.casefold() not in {"http", "https"}
+        or not valid_hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+        or port is not None and not 1 <= port <= 65535
+    ):
+        return [Finding("error", resource, "Network installer source must be a credential-free HTTP or HTTPS URL without a fragment.")]
+    return []
+
+
+def _installer_source_findings(installer: Dict[str, Any], config: Config) -> List[Finding]:
+    resource = str(installer.get("name") or installer["id"])
+    source_type = installer.get("source_type")
+    if source_type == "tree":
+        return _installer_path_findings(resource, installer.get("source_path"), config, "tree")
+    if source_type == "iso":
+        return _installer_path_findings(resource, installer.get("iso_path"), config, "ISO")
+    if source_type == "network":
+        return _network_source_findings(resource, installer.get("source_path"))
+    return [Finding("error", resource, "Installer source type must be iso, tree, or network.")]
+
+
+def _installer_boot_file_findings(resource: str, field: str, value: Any, config: Config) -> List[Finding]:
+    label = {"kernel_path": "kernel", "initrd_path": "initrd", "efi_path": "EFI executable"}[field]
+    if (
+        not isinstance(value, str)
+        or not value
+        or os.path.isabs(value)
+        or ".." in value.split(os.sep)
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return [Finding("error", resource, "Installer {} path must be relative to the TFTP root.".format(label))]
+    path = os.path.join(config.tftp_root, value)
+    if not _inside(path, config.tftp_root):
+        return [Finding("error", resource, "Installer {} path is outside the TFTP root.".format(label))]
+    if not os.path.isfile(path) or not os.access(path, os.R_OK):
+        return [Finding("error", resource, "Installer {} is not a readable file beneath the TFTP root.".format(label))]
+    return []
+
+
+def _installer_readiness_findings(installer: Dict[str, Any], config: Config) -> List[Finding]:
+    resource = str(installer.get("name") or installer["id"])
+    findings = _installer_source_findings(installer, config)
+    if installer.get("architecture") != "x86_64":
+        findings.append(Finding("error", resource, "Installer architecture must be x86_64."))
+    if installer.get("boot_modes") != ["uefi"]:
+        findings.append(Finding("error", resource, "Installer boot modes must be an ordered list containing only uefi."))
+    for field in ("kernel_path", "initrd_path", "efi_path"):
+        findings.extend(_installer_boot_file_findings(resource, field, installer.get(field), config))
+    return findings
+
+
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
@@ -282,17 +371,19 @@ def validate_catalogs(config: Config) -> List[Finding]:
         elif not os.path.isfile(path) or not os.access(path, os.R_OK):
             findings.append(Finding("error", resource, "Template content is not a readable file."))
 
+        installer_id = template.get("installer_id")
+        if installer_id and installer_id not in installers:
+            findings.append(Finding("error", resource, "Referenced installer does not exist."))
+        role_ids = template.get("role_ids", [])
+        if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
+            findings.append(Finding("error", resource, "Role references must be an ordered list without duplicates."))
+        # REGRESSION GUARD: Duplicate references must not hide a separate
+        # missing-role finding in the same stored list.
+        if isinstance(role_ids, list) and any(isinstance(role_id, str) and role_id not in roles for role_id in role_ids):
+            findings.append(Finding("error", resource, "A referenced role does not exist."))
+
     for installer in catalogs["installers"]:
-        resource = str(installer.get("name") or installer["id"])
-        path = installer.get("source_path")
-        if not isinstance(path, str) or not os.path.isabs(path):
-            findings.append(Finding("error", resource, "Installer source path must be absolute."))
-        elif not os.path.exists(path) or not os.access(path, os.R_OK):
-            findings.append(Finding("error", resource, "Installer source path is not readable."))
-        elif not config.installer_roots:
-            findings.append(Finding("warning", resource, "Installer path is readable, but no installer-root allowlist is specified yet."))
-        elif not any(_inside(path, root) for root in config.installer_roots):
-            findings.append(Finding("error", resource, "Installer source path is outside the approved installer roots."))
+        findings.extend(_installer_readiness_findings(installer, config))
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return findings

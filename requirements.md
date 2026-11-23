@@ -228,10 +228,15 @@ Each host record shall support:
 
 ## Installers (`INSTALLERS_FILE`)
 
-An installer record shall support `id`, `name`, `description`, `os_family`, `os_version`, `architecture`, `source_type`, `source_path`, optional kernel/initrd/EFI boot paths, optional ISO path, supported boot modes, enabled flag, and common metadata.
+An installer record shall support `id`, `name`, `description`, `os_family`, `os_version`, `architecture`, `source_type`, `source_path`, kernel/initrd/EFI boot paths, optional ISO path, supported boot modes, enabled flag, and common metadata.
 
+- The initial readiness profile shall accept only `architecture: x86_64` and `boot_modes: [uefi]`. Additional architectures or boot modes require an explicit requirements update.
+- `kernel_path`, `initrd_path`, and `efi_path` shall be required relative paths beneath `TFTP_ROOT`. Their resolved targets must be readable regular files; reject absolute paths, `..` traversal, control characters, and symlink escapes.
 - Supported `source_type` values shall include `iso`, `tree`, and `network`; additional types require an explicit adapter.
-- File-backed paths shall resolve within configured allowlisted installer or TFTP roots; forbid `..` traversal and symlink escapes outside those roots.
+- A `tree` source shall use an absolute `source_path` naming a readable and traversable directory beneath an approved `INSTALLER_ROOTS` entry.
+- An `iso` source shall use an absolute `iso_path` naming a readable regular file with a case-insensitive `.iso` extension beneath an approved `INSTALLER_ROOTS` entry. Read-only validation shall never mount the image.
+- A `network` source shall use `source_path` as a credential-free `http` or `https` URL with a hostname and no fragment. Read-only validation shall parse the URL without contacting it.
+- File-backed paths shall resolve within configured allowlisted installer or TFTP roots; forbid control characters, `..` traversal, and symlink escapes outside those roots.
 - Installer readiness validation shall check required paths, readable sources, architecture/boot-mode metadata, and referenced boot files without altering files.
 - An installer that is referenced by hosts/templates shall not be deleted without an explicit dependency resolution flow.
 - A catalog record shall not copy, mount, or publish an ISO merely because it was saved; those are separate authorized operations.
@@ -485,6 +490,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - The repository shall include `provmanager.cgi`, `requirements.md`, `regression_testing_requirements.md`, `AGENTS.md`, `README.md`, `provmanager.conf.example`, `LICENSE`, `build.sh`, and a `tests/` directory.
 - `README.md` shall document intended use, package dependencies, Python compatibility, service/configuration prerequisites, example catalog schemas, installation, filesystem ownership, permissions, first-run setup, backup/restore, and test execution.
 - The deployment guide shall explain how to configure HTTP form authentication externally without requiring ProvManager to know the password backend.
+- The deployment guide shall include a least-privilege SELinux policy example and installation/removal instructions for read-only CGI access to TFTP-labeled boot files. Administrators shall verify the actual source domain from AVC records rather than assuming it, and the example shall not grant CGI write access to the TFTP tree.
 - Provide a validation command for catalog schemas and staged output without contacting production DHCP, TFTP, or Ansible targets.
 - `build.sh` shall stamp `PROVMANAGER_VERSION` from the base semantic version and abbreviated Git commit ID, using `x.y.z-dev.N+GITID` by default and `x.y.z+GITID` with `--release`.
 - The build script shall refuse to modify a file without exactly one recognizable `PROVMANAGER_VERSION` assignment and shall never alter the documented base version inadvertently.

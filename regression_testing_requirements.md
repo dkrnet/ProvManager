@@ -153,6 +153,7 @@ Ensure group enumeration covers a user's primary group and supplementary members
 - Malformed booleans, nonpositive size limits, invalid dimensions, and invalid/relative executable or filesystem paths shall yield the specified safe defaults or fail-closed behavior.
 - Verify sensitive or unsafe path/executable overrides cannot silently enable privileged operations.
 - Verify sample configuration contains every supported site key and the documented values or explanatory defaults.
+- Verify the packaged SELinux example grants the documented CGI domain only read/traversal access to TFTP-labeled content, contains no file-mutation permissions, and is included in development and release build output.
 - Check that `PROVMANAGER_VERSION` appears as intended on authenticated pages, is absent from public auth pages, and is preserved as the base version in ordinary source.
 - Test `build.sh` in a temporary Git repository with development and release modes, missing/multiple version assignments, absent release tag, and existing metadata suffixes; ensure no unintended source edits.
 - Verify project-owned Python files carry `SPDX-License-Identifier: AGPL-3.0-only`; do not replace the repository's `LICENSE` content.
@@ -229,7 +230,9 @@ Ensure group enumeration covers a user's primary group and supplementary members
 - Ensure record edits preserve immutable IDs and creator metadata, harmless unknown existing fields, supported role order, and unrelated records.
 - Verify hostnames are normalized for case-insensitive uniqueness and validated as DNS names; validate MAC normalization/uniqueness, IPv4/IPv6 parsing, and managed-network active-address uniqueness.
 - Verify host state values and enabled status obey the documented readiness/dependency rules; a record may be incomplete without incorrectly being marked `ready`.
-- Verify installer `source_type` enumeration (`iso`, `tree`, `network`), architecture, boot modes, required source paths and boot files, enabled flag, and allowlist controls.
+- Verify installer `source_type` enumeration (`iso`, `tree`, `network`), the initial `x86_64` architecture and `uefi` boot-mode profile, required source paths and boot files, enabled flag, and allowlist controls.
+- Verify required relative `kernel_path`, `initrd_path`, and `efi_path` values resolve to readable regular files beneath the isolated `TFTP_ROOT`; reject missing files, absolute paths, traversal, control characters, and symlink escapes without modifying the TFTP tree.
+- Verify tree sources require readable and traversable approved directories; ISO sources require readable approved `.iso` files without mounting them; file paths reject traversal and control characters; and network sources accept only credential-free HTTP(S) URLs with valid DNS/IP hostnames, no whitespace or fragments, and no network access.
 - Verify role catalog paths, version/metadata, enabled flag, role variable constraints, and host/template role order.
 - Verify template types (`kickstart`, `boot`, `ansible`, supported additional types), source path/content fields, content size limit, approved variable names, referenced roles/installer, and allowed renderers.
 - Check inherited references when record names change: dependent resources must continue referencing stable IDs.
