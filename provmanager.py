@@ -241,6 +241,36 @@ def _installer_source_findings(installer: Dict[str, Any], config: Config) -> Lis
     return [Finding("error", resource, "Installer source type must be iso, tree, or network.")]
 
 
+def _installer_boot_file_findings(resource: str, field: str, value: Any, config: Config) -> List[Finding]:
+    label = {"kernel_path": "kernel", "initrd_path": "initrd", "efi_path": "EFI executable"}[field]
+    if (
+        not isinstance(value, str)
+        or not value
+        or os.path.isabs(value)
+        or ".." in value.split(os.sep)
+        or any(ord(character) < 32 or ord(character) == 127 for character in value)
+    ):
+        return [Finding("error", resource, "Installer {} path must be relative to the TFTP root.".format(label))]
+    path = os.path.join(config.tftp_root, value)
+    if not _inside(path, config.tftp_root):
+        return [Finding("error", resource, "Installer {} path is outside the TFTP root.".format(label))]
+    if not os.path.isfile(path) or not os.access(path, os.R_OK):
+        return [Finding("error", resource, "Installer {} is not a readable file beneath the TFTP root.".format(label))]
+    return []
+
+
+def _installer_readiness_findings(installer: Dict[str, Any], config: Config) -> List[Finding]:
+    resource = str(installer.get("name") or installer["id"])
+    findings = _installer_source_findings(installer, config)
+    if installer.get("architecture") != "x86_64":
+        findings.append(Finding("error", resource, "Installer architecture must be x86_64."))
+    if installer.get("boot_modes") != ["uefi"]:
+        findings.append(Finding("error", resource, "Installer boot modes must be an ordered list containing only uefi."))
+    for field in ("kernel_path", "initrd_path", "efi_path"):
+        findings.extend(_installer_boot_file_findings(resource, field, installer.get(field), config))
+    return findings
+
+
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
@@ -342,7 +372,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
             findings.append(Finding("error", resource, "A referenced role does not exist."))
 
     for installer in catalogs["installers"]:
-        findings.extend(_installer_source_findings(installer, config))
+        findings.extend(_installer_readiness_findings(installer, config))
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return findings
