@@ -336,7 +336,9 @@ def validate_catalogs(config: Config) -> List[Finding]:
         role_ids = template.get("role_ids", [])
         if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
             findings.append(Finding("error", resource, "Role references must be an ordered list without duplicates."))
-        elif any(role_id not in roles for role_id in role_ids):
+        # REGRESSION GUARD: Duplicate references must not hide a separate
+        # missing-role finding in the same stored list.
+        if isinstance(role_ids, list) and any(isinstance(role_id, str) and role_id not in roles for role_id in role_ids):
             findings.append(Finding("error", resource, "A referenced role does not exist."))
 
     for installer in catalogs["installers"]:
