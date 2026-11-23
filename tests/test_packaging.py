@@ -34,9 +34,14 @@ def test_apache_example_uses_isolated_login_and_scoped_session_settings() -> Non
 
 def test_selinux_example_grants_only_read_access_to_tftp_content() -> None:
     example = (ROOT / "provmanager-tftp-read.te.example").read_text(encoding="utf-8")
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     assert "allow httpd_sys_script_t tftpdir_rw_t:dir" in example
     assert "allow httpd_sys_script_t tftpdir_rw_t:file" in example
     assert "allow httpd_sys_script_t tftpdir_rw_t:lnk_file" in example
+    assert "module provmanager_tftp_read 1.0;" in example
+    assert "checkmodule -M -m -o provmanager_tftp_read.mod provmanager_tftp_read.te" in readme
+    assert "semodule_package -o provmanager_tftp_read.pp -m provmanager_tftp_read.mod" in readme
+    assert "sudo semodule -i provmanager_tftp_read.pp" in readme
     for permission in ("create", "write", "append", "rename", "unlink"):
         assert permission not in example
 

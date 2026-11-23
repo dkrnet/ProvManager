@@ -183,10 +183,10 @@ Install the policy build tools, then compile and install the example:
 
 ```sh
 sudo dnf install selinux-policy-devel policycoreutils-python-utils
-cp provmanager-tftp-read.te.example provmanager-tftp-read.te
-checkmodule -M -m -o provmanager-tftp-read.mod provmanager-tftp-read.te
-semodule_package -o provmanager-tftp-read.pp -m provmanager-tftp-read.mod
-sudo semodule -i provmanager-tftp-read.pp
+cp provmanager-tftp-read.te.example provmanager_tftp_read.te
+checkmodule -M -m -o provmanager_tftp_read.mod provmanager_tftp_read.te
+semodule_package -o provmanager_tftp_read.pp -m provmanager_tftp_read.mod
+sudo semodule -i provmanager_tftp_read.pp
 ```
 
 Persist and apply the TFTP label to the configured default root:
