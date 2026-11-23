@@ -2,6 +2,7 @@
 """Source-type-specific read-only installer validation tests."""
 
 from dataclasses import replace
+import os
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,23 @@ def test_tree_source_requires_readable_approved_directory(tmp_path: Path) -> Non
     assert _messages(record, config) == ["Installer tree path is not a readable directory."]
 
 
+def test_tree_source_requires_directory_traversal_permission(tmp_path: Path, monkeypatch) -> None:
+    root = tmp_path / "installers"
+    tree = root / "rocky9"
+    tree.mkdir(parents=True)
+    config = replace(Config(), installer_roots=(str(root),))
+    record = {"id": "installer-1", "name": "Rocky 9", "source_type": "tree", "source_path": str(tree)}
+    real_access = os.access
+
+    def access(path, mode):
+        if path == str(tree) and mode == (os.R_OK | os.X_OK):
+            return False
+        return real_access(path, mode)
+
+    monkeypatch.setattr("provmanager.os.access", access)
+    assert _messages(record, config) == ["Installer tree path is not readable."]
+
+
 def test_iso_source_requires_iso_path_regular_file_and_allowlist(tmp_path: Path) -> None:
     root = tmp_path / "installers"
     root.mkdir()
@@ -44,11 +62,26 @@ def test_iso_source_requires_iso_path_regular_file_and_allowlist(tmp_path: Path)
     assert _messages(record, config) == ["Installer ISO path must be a readable .iso file."]
 
 
+@pytest.mark.parametrize("source_type,field,suffix", [("tree", "source_path", ""), ("iso", "iso_path", ".iso")])
+@pytest.mark.parametrize("unsafe", ["nested/../source", "source\x00name"])
+def test_file_source_rejects_traversal_and_control_characters(
+    tmp_path: Path, source_type: str, field: str, suffix: str, unsafe: str,
+) -> None:
+    root = tmp_path / "installers"
+    root.mkdir()
+    value = str(root / (unsafe + suffix))
+    record = {"id": "installer-1", "name": "Unsafe", "source_type": source_type, field: value}
+    messages = _messages(record, replace(Config(), installer_roots=(str(root),)))
+    assert len(messages) == 1
+    assert "traversal or control characters" in messages[0]
+
+
 @pytest.mark.parametrize(
     "url",
     [
         "http://mirror.example.test/rocky/9/",
         "https://mirror.example.test:8443/rocky/9/",
+        "https://[2001:db8::1]/rocky/9/",
     ],
 )
 def test_network_source_accepts_safe_http_urls_without_network_access(monkeypatch, url: str) -> None:
@@ -70,6 +103,8 @@ def test_network_source_accepts_safe_http_urls_without_network_access(monkeypatc
         "https://mirror.example.test:99999/rocky/9/",
         "https://",
         "https://mirror.example.test/rocky/9/\nunsafe",
+        "https://mirror example.test/rocky/9/",
+        "https://bad_host.example.test/rocky/9/",
     ],
 )
 def test_network_source_rejects_unsafe_or_malformed_urls(url: str) -> None:

@@ -232,7 +232,7 @@ Ensure group enumeration covers a user's primary group and supplementary members
 - Verify host state values and enabled status obey the documented readiness/dependency rules; a record may be incomplete without incorrectly being marked `ready`.
 - Verify installer `source_type` enumeration (`iso`, `tree`, `network`), the initial `x86_64` architecture and `uefi` boot-mode profile, required source paths and boot files, enabled flag, and allowlist controls.
 - Verify required relative `kernel_path`, `initrd_path`, and `efi_path` values resolve to readable regular files beneath the isolated `TFTP_ROOT`; reject missing files, absolute paths, traversal, control characters, and symlink escapes without modifying the TFTP tree.
-- Verify tree sources require readable approved directories, ISO sources require readable approved `.iso` files without mounting them, and network sources accept only credential-free HTTP(S) URLs without fragments or network access.
+- Verify tree sources require readable and traversable approved directories; ISO sources require readable approved `.iso` files without mounting them; file paths reject traversal and control characters; and network sources accept only credential-free HTTP(S) URLs with valid DNS/IP hostnames, no whitespace or fragments, and no network access.
 - Verify role catalog paths, version/metadata, enabled flag, role variable constraints, and host/template role order.
 - Verify template types (`kickstart`, `boot`, `ansible`, supported additional types), source path/content fields, content size limit, approved variable names, referenced roles/installer, and allowed renderers.
 - Check inherited references when record names change: dependent resources must continue referencing stable IDs.

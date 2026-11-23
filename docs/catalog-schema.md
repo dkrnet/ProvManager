@@ -32,6 +32,10 @@ Installer source fields depend on `source_type`:
 - `iso`: `iso_path` is an absolute readable `.iso` file beneath `INSTALLER_ROOTS`.
 - `network`: `source_path` is a credential-free HTTP(S) URL. Validation does not contact it.
 
+File-backed source paths must not contain `..` traversal or control characters;
+tree directories must also be traversable. Network URLs require a valid DNS or
+IP hostname and must not contain whitespace.
+
 The initial installer-readiness profile supports only `architecture: x86_64`
 and `boot_modes: [uefi]`. `kernel_path`, `initrd_path`, and `efi_path` are
 required relative paths beneath `TFTP_ROOT`; validation rejects traversal and

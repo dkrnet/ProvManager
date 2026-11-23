@@ -196,11 +196,14 @@ def _normalize_mac(value: Any) -> Optional[str]:
 def _installer_path_findings(resource: str, path: Any, config: Config, expected: str) -> List[Finding]:
     if not isinstance(path, str) or not os.path.isabs(path):
         return [Finding("error", resource, "Installer {} path must be absolute.".format(expected))]
+    if ".." in path.split(os.sep) or any(ord(character) < 32 or ord(character) == 127 for character in path):
+        return [Finding("error", resource, "Installer {} path contains traversal or control characters.".format(expected))]
     if expected == "tree" and not os.path.isdir(path):
         return [Finding("error", resource, "Installer tree path is not a readable directory.")]
     if expected == "ISO" and (not os.path.isfile(path) or not path.casefold().endswith(".iso")):
         return [Finding("error", resource, "Installer ISO path must be a readable .iso file.")]
-    if not os.access(path, os.R_OK):
+    access_mode = os.R_OK | os.X_OK if expected == "tree" else os.R_OK
+    if not os.access(path, access_mode):
         return [Finding("error", resource, "Installer {} path is not readable.".format(expected))]
     if not config.installer_roots:
         return [Finding("warning", resource, "Installer path is readable, but no installer-root allowlist is specified yet.")]
@@ -210,16 +213,24 @@ def _installer_path_findings(resource: str, path: Any, config: Config, expected:
 
 
 def _network_source_findings(resource: str, value: Any) -> List[Finding]:
-    if not isinstance(value, str) or not value or any(ord(character) < 32 or ord(character) == 127 for character in value):
+    if not isinstance(value, str) or not value or any(character.isspace() or ord(character) == 127 for character in value):
         return [Finding("error", resource, "Network installer source must be a valid HTTP or HTTPS URL.")]
     try:
         parsed = urlsplit(value)
+        hostname = parsed.hostname
         port = parsed.port
     except ValueError:
         return [Finding("error", resource, "Network installer source must be a valid HTTP or HTTPS URL.")]
+    valid_hostname = False
+    if hostname:
+        try:
+            ipaddress.ip_address(hostname)
+            valid_hostname = True
+        except ValueError:
+            valid_hostname = _valid_hostname(hostname)
     if (
         parsed.scheme.casefold() not in {"http", "https"}
-        or not parsed.hostname
+        or not valid_hostname
         or parsed.username is not None
         or parsed.password is not None
         or parsed.fragment

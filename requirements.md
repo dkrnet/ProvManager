@@ -233,10 +233,10 @@ An installer record shall support `id`, `name`, `description`, `os_family`, `os_
 - The initial readiness profile shall accept only `architecture: x86_64` and `boot_modes: [uefi]`. Additional architectures or boot modes require an explicit requirements update.
 - `kernel_path`, `initrd_path`, and `efi_path` shall be required relative paths beneath `TFTP_ROOT`. Their resolved targets must be readable regular files; reject absolute paths, `..` traversal, control characters, and symlink escapes.
 - Supported `source_type` values shall include `iso`, `tree`, and `network`; additional types require an explicit adapter.
-- A `tree` source shall use an absolute `source_path` naming a readable directory beneath an approved `INSTALLER_ROOTS` entry.
+- A `tree` source shall use an absolute `source_path` naming a readable and traversable directory beneath an approved `INSTALLER_ROOTS` entry.
 - An `iso` source shall use an absolute `iso_path` naming a readable regular file with a case-insensitive `.iso` extension beneath an approved `INSTALLER_ROOTS` entry. Read-only validation shall never mount the image.
 - A `network` source shall use `source_path` as a credential-free `http` or `https` URL with a hostname and no fragment. Read-only validation shall parse the URL without contacting it.
-- File-backed paths shall resolve within configured allowlisted installer or TFTP roots; forbid `..` traversal and symlink escapes outside those roots.
+- File-backed paths shall resolve within configured allowlisted installer or TFTP roots; forbid control characters, `..` traversal, and symlink escapes outside those roots.
 - Installer readiness validation shall check required paths, readable sources, architecture/boot-mode metadata, and referenced boot files without altering files.
 - An installer that is referenced by hosts/templates shall not be deleted without an explicit dependency resolution flow.
 - A catalog record shall not copy, mount, or publish an ISO merely because it was saved; those are separate authorized operations.
