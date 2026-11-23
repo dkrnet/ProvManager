@@ -147,6 +147,7 @@ python3 -m venv .venv
 3. Create the four YAML catalogs using the version-1 envelope and examples in [`docs/catalog-schema.md`](docs/catalog-schema.md).
 4. Give the CGI service account read access to the configuration, catalogs, and any directories inspected during validation. Do not grant system-path write access for this milestone.
 5. Install `provmanager.cgi`, `provmanager.py`, and the Python dependency where the web server can execute/import them. Adapt [`provmanager-form-auth.conf.example`](provmanager-form-auth.conf.example) for the Apache installation and configure the web server’s authentication layer to set `REMOTE_USER`; ProvManager never handles or validates passwords.
+6. On SELinux systems, configure the narrowly scoped read access described below when boot files retain a TFTP-specific type that the CGI domain cannot read by default.
 
 The optional site configuration is plain `KEY=value` data and must not be sourced as shell code. Unknown keys are ignored. Invalid values retain safe defaults and produce an administrative diagnostic.
 
@@ -157,6 +158,63 @@ INSTALLER_ROOTS=/mnt/installers,/srv/installers
 ```
 
 With no configured installer root, readable installer paths remain available for read-only inspection but produce a validation warning.
+
+### SELinux access to TFTP boot files
+
+An inode has one SELinux type, so a boot file cannot be labeled as both
+`tftpdir_rw_t` and `httpd_sys_rw_content_t`. Keep the TFTP label and grant the
+confined ProvManager CGI domain read-only access with a local policy. The
+repository provides [`provmanager-tftp-read.te.example`](provmanager-tftp-read.te.example)
+for the common `httpd_sys_script_t` CGI domain.
+
+First reproduce the denial and inspect its source and target contexts:
+
+```sh
+sudo ausearch -m AVC -ts recent
+```
+
+Confirm that the denial names `httpd_sys_script_t` as `scontext` and
+`tftpdir_rw_t` as `tcontext`. If the source domain differs, review the local
+web-server policy and replace `httpd_sys_script_t` in a site-owned copy of the
+example. Do not install a policy for an assumed domain, and do not generate a
+broad policy directly from unrelated AVC records.
+
+Install the policy build tools, then compile and install the example:
+
+```sh
+sudo dnf install selinux-policy-devel policycoreutils-python-utils
+cp provmanager-tftp-read.te.example provmanager-tftp-read.te
+checkmodule -M -m -o provmanager-tftp-read.mod provmanager-tftp-read.te
+semodule_package -o provmanager-tftp-read.pp -m provmanager-tftp-read.mod
+sudo semodule -i provmanager-tftp-read.pp
+```
+
+Persist and apply the TFTP label to the configured default root:
+
+```sh
+sudo semanage fcontext -a -t tftpdir_rw_t '/var/lib/tftpboot/efi(/.*)?'
+sudo restorecon -RFv /var/lib/tftpboot/efi
+```
+
+For a non-default `TFTP_ROOT`, substitute its escaped absolute path in the
+`semanage fcontext` expression. Use `-m` instead of `-a` if an explicit local
+mapping for that exact expression already exists. The example grants directory
+traversal and file reads only; it does not grant the CGI process create, write,
+rename, or delete access.
+
+Verify labels and check for new denials after loading the Validation page:
+
+```sh
+ls -ldZ /var/lib/tftpboot/efi
+find /var/lib/tftpboot/efi -maxdepth 2 -exec ls -ldZ {} \;
+sudo ausearch -m AVC -ts recent
+```
+
+To remove the local policy module:
+
+```sh
+sudo semodule -r provmanager_tftp_read
+```
 
 ### Build output
 

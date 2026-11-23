@@ -490,6 +490,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - The repository shall include `provmanager.cgi`, `requirements.md`, `regression_testing_requirements.md`, `AGENTS.md`, `README.md`, `provmanager.conf.example`, `LICENSE`, `build.sh`, and a `tests/` directory.
 - `README.md` shall document intended use, package dependencies, Python compatibility, service/configuration prerequisites, example catalog schemas, installation, filesystem ownership, permissions, first-run setup, backup/restore, and test execution.
 - The deployment guide shall explain how to configure HTTP form authentication externally without requiring ProvManager to know the password backend.
+- The deployment guide shall include a least-privilege SELinux policy example and installation/removal instructions for read-only CGI access to TFTP-labeled boot files. Administrators shall verify the actual source domain from AVC records rather than assuming it, and the example shall not grant CGI write access to the TFTP tree.
 - Provide a validation command for catalog schemas and staged output without contacting production DHCP, TFTP, or Ansible targets.
 - `build.sh` shall stamp `PROVMANAGER_VERSION` from the base semantic version and abbreviated Git commit ID, using `x.y.z-dev.N+GITID` by default and `x.y.z+GITID` with `--release`.
 - The build script shall refuse to modify a file without exactly one recognizable `PROVMANAGER_VERSION` assignment and shall never alter the documented base version inadvertently.

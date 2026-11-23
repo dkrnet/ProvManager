@@ -30,6 +30,6 @@ fi
 
 mkdir -p "$output_dir"
 sed "s/^PROVMANAGER_VERSION = \"1.0.0\"$/PROVMANAGER_VERSION = \"$version\"/" "$source_file" > "$output_dir/provmanager.py"
-cp provmanager.cgi requirements.txt provmanager.conf.example provmanager-form-auth.conf.example "$output_dir/"
+cp provmanager.cgi requirements.txt provmanager.conf.example provmanager-form-auth.conf.example provmanager-tftp-read.te.example "$output_dir/"
 chmod +x "$output_dir/provmanager.cgi"
 echo "Built ProvManager $version in $output_dir"
