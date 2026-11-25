@@ -316,6 +316,11 @@ def _template_value(name: str, host: dict, values: dict, defaults: dict, install
         if field in ("kickstart_path", "stage2_path") and _installer_locator_error(field, path):
             return None
         return path if isinstance(path, str) and path.strip() else None
+    if name == "short_hostname":
+        hostname = host.get("hostname")
+        if isinstance(hostname, str) and hostname.strip():
+            return hostname.partition(".")[0] or None
+        return None
     if name in values:
         return values[name]
     if name == "hostname":

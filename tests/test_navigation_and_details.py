@@ -173,10 +173,11 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     assert b"No validation findings match" in _dispatch(scoped, viewer, config).body
 
 
-def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
+@pytest.mark.parametrize("hostname", ["host.example", "host"])
+def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) -> None:
     config = replace(_config(tmp_path), kickstart_root=str(tmp_path), tftp_root=str(tmp_path))
     Path(config.hosts_file).write_text(
-        "schema_version: 1\nrecords: [{id: host, hostname: host.example, provisioning_state: ready, "
+        f"schema_version: 1\nrecords: [{{id: host, hostname: {hostname}, provisioning_state: ready, "
         "mac_addresses: ['02:00:00:00:00:01'], installer_id: image, kickstart_template_id: ks, boot_template_id: boot, "
         "variables: {installer_kernel_path: ignored}}]\n",
         encoding="utf-8",
@@ -184,7 +185,7 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
     ks.write_text("# Kickstart preview", encoding="utf-8")
     boot.write_text(
-        "# Boot preview for {{ hostname }}: /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}\n"
+        "# Boot preview for {{ hostname }} ({{ short_hostname }}): /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}\n"
         "inst.ks={{ installer_kickstart_path }} inst.stage2={{ installer_stage2_path }}",
         encoding="utf-8",
     )
@@ -197,8 +198,8 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
         "schema_version: 1\nrecords:\n"
         f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
         f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}', "
-        "allowed_variables: [hostname, installer_kernel_path, installer_initrd_path, installer_efi_path, installer_kickstart_path, installer_stage2_path], "
-        "required_variables: [hostname, installer_kernel_path], variable_defaults: {hostname: fallback.example}}\n",
+        "allowed_variables: [hostname, short_hostname, installer_kernel_path, installer_initrd_path, installer_efi_path, installer_kickstart_path, installer_stage2_path], "
+        "required_variables: [hostname, short_hostname, installer_kernel_path], variable_defaults: {hostname: fallback.example}}\n",
         encoding="utf-8",
     )
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
@@ -209,13 +210,13 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     assert b"Missing required template variables" not in body
     for template_id, expected in (
         ("ks", b"# Kickstart preview"),
-        ("boot", b"# Boot preview for host.example: /os/vmlinuz /os/initrd.img /os/boot.efi\n"
-         b"inst.ks=https://install.example/setup.ks inst.stage2=https://install.example/rescue/"),
+        ("boot", f"# Boot preview for {hostname} (host): /os/vmlinuz /os/initrd.img /os/boot.efi\n".encode()
+         + b"inst.ks=https://install.example/setup.ks inst.stage2=https://install.example/rescue/"),
     ):
         assert b"<pre>" + expected + b"</pre>" in _dispatch(
             f"action=template_preview&host_id=host&template_id={template_id}", viewer, config,
         ).body
-        assert b'<option value="host">host.example</option>' in _dispatch(
+        assert f'<option value="host">{hostname}</option>'.encode() in _dispatch(
             f"action=template_view&id={template_id}", viewer, config,
         ).body
     installer_catalog = Path(config.installers_file)

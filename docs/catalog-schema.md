@@ -34,6 +34,9 @@ To use `{{ hostname }}` in a template, add `hostname` to its
 `allowed_variables`. The host's top-level `hostname` supplies the value
 unless the host explicitly defines `variables.hostname`. The template
 default applies when neither host value is available.
+Allowlist `short_hostname` to use `{{ short_hostname }}`. This reserved
+variable is derived from the top-level hostname, so `node01.example.com`
+and `node01` both yield `node01`.
 
 To use boot paths from the installer selected by the host's `installer_id`,
 allowlist `installer_kernel_path`, `installer_initrd_path`, or
