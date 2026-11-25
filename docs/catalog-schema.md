@@ -115,5 +115,7 @@ Both the source and rendered text are subject to `MAX_TEMPLATE_BYTES`.
 Catalog validation checks source placeholders without selecting a host. A
 source finding includes the first unsupported or undeclared placeholder's
 source line and the YAML location of the template's `content_path`.
+Readiness checks also require a value for each allowlisted placeholder used in
+the source, even if the name is omitted from `required_variables`.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.

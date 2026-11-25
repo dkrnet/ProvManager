@@ -85,6 +85,18 @@ def test_ready_host_checks_required_template_values_with_host_precedence(tmp_pat
     assert finding.location.startswith("Hosts, line 3, column ")
 
 
+def test_ready_host_requires_values_for_placeholders_used_in_source(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    source = Path(config.kickstart_root) / "setup.ks"
+    source.write_text("# Site: {{ site }}", encoding="utf-8")
+    _catalog(Path(config.templates_file), f"  - {{id: t, name: Setup, template_type: kickstart, content_path: '{source}', allowed_variables: [site, unused]}}\n")
+    host = "  - {id: h, hostname: host.example, mac_addresses: ['02:00:00:00:00:01'], provisioning_state: ready, template_id: t"
+    _catalog(Path(config.hosts_file), host + "}\n")
+    assert any(item.message == "Missing required template variables: site." for item in validate_catalogs(config))
+    _catalog(Path(config.hosts_file), host + ", variables: {site: lab}}\n")
+    assert not any(item.message.startswith("Missing required template variables") for item in validate_catalogs(config))
+
+
 def test_required_template_variables_must_be_unique_allowlisted_names(tmp_path: Path) -> None:
     config = _config(tmp_path)
     content = Path(config.kickstart_root) / "setup.ks"

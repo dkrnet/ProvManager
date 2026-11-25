@@ -623,19 +623,6 @@ def validate_catalogs(config: Config) -> List[Finding]:
             template = templates.get(template_id) if isinstance(template_id, str) else None
             if template and _has_disabled_role(template.get("role_ids"), roles):
                 report("hosts", host, Finding("error", resource, "The selected template references a disabled role."), "template_id")
-            if template:
-                required = template.get("required_variables", [])
-                allowed = template.get("allowed_variables", [])
-                defaults = template.get("variable_defaults", {})
-                if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
-                    missing = sorted({
-                        name for name in required
-                        if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
-                        and name in allowed and variables.get(name, defaults.get(name)) is None
-                    })
-                    if missing:
-                        message = "Missing required template variables: " + ", ".join(missing) + "."
-                        report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else "template_id")
 
     for role in catalogs["roles"]:
         path = role.get("role_path")
@@ -645,6 +632,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
         elif not os.path.isdir(path) or not os.access(path, os.R_OK):
             report("roles", role, Finding("error", resource, "Role path is not a readable directory."), "role_path")
 
+    template_placeholders = {}
     for template in catalogs["templates"]:
         resource = str(template.get("name") or template["id"])
         allowed_variables = template.get("allowed_variables", [])
@@ -699,7 +687,8 @@ def validate_catalogs(config: Config) -> List[Finding]:
                     report("templates", template, Finding("error", resource, "Template source could not be read as UTF-8 within the size limit."), "content_path")
                 else:
                     try:
-                        _checked_template_chunks(source, set(allowed_variables))
+                        chunks = _checked_template_chunks(source, set(allowed_variables))
+                        template_placeholders[template["id"]] = set(chunks[1::2])
                     except ValueError as error:
                         report("templates", template, Finding("error", resource, str(error)), "content_path")
 
@@ -723,6 +712,20 @@ def validate_catalogs(config: Config) -> List[Finding]:
         resource = str(host.get("hostname") or host["id"])
         template_id = host.get("template_id")
         template = templates.get(template_id, {}) if isinstance(template_id, str) else {}
+        variables = host.get("variables", {})
+        if template:
+            required = template.get("required_variables", [])
+            allowed = template.get("allowed_variables", [])
+            defaults = template.get("variable_defaults", {})
+            if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
+                missing = sorted({
+                    name for name in (*required, *template_placeholders.get(template_id, ()))
+                    if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
+                    and name in allowed and variables.get(name, defaults.get(name)) is None
+                })
+                if missing:
+                    message = "Missing required template variables: " + ", ".join(missing) + "."
+                    report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else "template_id")
         for field, role_ids, message in (
             ("role_ids", host.get("role_ids"), "A role selected by this host has validation errors."),
             ("template_id", template.get("role_ids"), "The selected template references a role with validation errors."),
