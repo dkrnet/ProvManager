@@ -48,11 +48,18 @@ def test_host_detail_shows_only_its_findings_to_validation_users(tmp_path: Path)
     action = "action=host_view&id=first"
     response = _dispatch(action, viewer, config)
     assert b"Validation findings" in response.body
+    assert b'action=validate&amp;host_id=first' in response.body
     assert b"Provisioning state must be one of" in response.body
     assert b"Hosts, line 3, column" in response.body
     assert b"At least one MAC address is required" not in response.body
     reader = replace(viewer, capabilities=frozenset({"hosts_read"}))
     assert b"Validation findings" not in _dispatch(action, reader, config).body
+    scoped = _dispatch("action=validate&host_id=first&severity=error", viewer, config)
+    assert b"Provisioning state must be one of" in scoped.body
+    assert b"At least one MAC address is required" not in scoped.body
+    assert b'name="host_id" value="first"' in scoped.body
+    assert _dispatch("action=validate&host_id=missing", viewer, config).status.startswith("404")
+    assert _dispatch("action=validate&host_id=first", reader, config).status.startswith("403")
 
 
 @pytest.mark.parametrize("action, location", [

@@ -1017,8 +1017,11 @@ def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], ca
         '<option value="{}"{}>{}</option>'.format(value, " selected" if selected_severity == value else "", label)
         for value, label in (("", "All severities"), ("error", "Errors"), ("warning", "Warnings"), ("information", "Information"))
     )
-    controls = '<form class="validation-filter" method="get"><input type="hidden" name="action" value="validate"><label for="severity-filter">Severity</label><select id="severity-filter" name="severity">{}</select><label for="resource-filter">Resource</label><input id="resource-filter" name="resource" value="{}"><button type="submit">Filter</button><a href="?action=validate">Reset</a></form>'.format(
-        options, html.escape(resource_query, quote=True)
+    host_id = _query_value(params, "host_id")
+    scope_input = '<input type="hidden" name="host_id" value="{}">'.format(html.escape(host_id, quote=True)) if host_id else ""
+    reset_query = urlencode({"action": "validate", "host_id": host_id}) if host_id else "action=validate"
+    controls = '<form class="validation-filter" method="get"><input type="hidden" name="action" value="validate">{}<label for="severity-filter">Severity</label><select id="severity-filter" name="severity">{}</select><label for="resource-filter">Resource</label><input id="resource-filter" name="resource" value="{}"><button type="submit">Filter</button><a href="?{}">Reset</a></form>'.format(
+        scope_input, options, html.escape(resource_query, quote=True), html.escape(reset_query, quote=True)
     )
     rows = "".join(
         '<tr><td><span class="severity severity-{}">{}</span></td><td>{}</td><td>{}</td></tr>'.format(
@@ -1121,6 +1124,9 @@ def dispatch(
         display_name = record.get("hostname") or record.get("name") or record["id"]
         detail = _record_detail(catalog_action, record, catalogs)
         if "preview" in identity.capabilities:
+            if catalog_action == "hosts":
+                query = urlencode({"action": "validate", "host_id": record_id})
+                detail += '<p><a href="?{}">Validate this host</a></p>'.format(html.escape(query, quote=True))
             record_findings = [
                 finding for finding in validate_catalogs(active)
                 if finding.catalog == catalog_action and finding.record_id == record_id
@@ -1139,10 +1145,32 @@ def dispatch(
             config=active,
         )
     if action == "validate":
+        host_id = _query_value(params, "host_id")
+        if host_id and "hosts_read" not in identity.capabilities:
+            return _html_response("Forbidden", "<p>You do not have permission to view hosts.</p>", "403 Forbidden", public=False, identity=identity, config=active)
+        title = "Validation"
+        if host_id:
+            try:
+                hosts = load_catalog(active.hosts_file)
+            except CatalogError as error:
+                return _html_response(title, "<p>{}</p>".format(html.escape(str(error))), "500 Internal Server Error", public=False, identity=identity, config=active)
+            host = next((record for record in hosts if record["id"] == host_id), None)
+            if host is None:
+                return _html_response("Not found", "<p>The requested host was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
+            title = "Validation: {}".format(host.get("hostname") or host_id)
+            catalogs = {name: [host] if name == "hosts" else [] for name in CATALOG_ACTIONS}
+        else:
+            catalogs = _validation_catalogs(active)
         findings = validate_catalogs(active)
+        if host_id:
+            findings = [
+                finding for finding in findings
+                if (not finding.catalog and finding.severity == "error")
+                or (finding.catalog == "hosts" and finding.record_id == host_id)
+            ]
         return _html_response(
-            "Validation",
-            _findings_table(findings, params, _validation_catalogs(active)),
+            title,
+            _findings_table(findings, params, catalogs),
             public=False,
             identity=identity,
             config=active,
