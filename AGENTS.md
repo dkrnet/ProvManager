@@ -12,6 +12,10 @@ Before making a nontrivial application, test, build, deployment, or configuratio
 
 Read relevant source and tests as well; do not assume behavior from filenames or previous conversations. A short summary or an earlier version of a required file is not a substitute for the current file.
 
+- Limit investigation and modifications to the requested task and its direct dependencies.
+- Start with targeted searches and inspect relevant source and tests. Expand the search when needed to understand dependencies, resolve uncertainty, or verify the change.
+- Reuse completed investigations unless the relevant code or requirements have changed or the earlier findings are insufficient. The current-document review above still applies.
+
 If a required document is missing or inaccessible, identify it and stop before nontrivial implementation changes, unless the project owner explicitly authorizes proceeding without it. **Bootstrap exception:** when establishing a new repository, an agent may create or revise the missing requirements, testing specification, agent instructions, and initial nonfunctional scaffolding under an explicit request. This exception does not authorize implementing provisioning behavior before reviewing the available requirements.
 
 Nontrivial changes include feature additions or removals, CGI dispatch or form behavior, access-control changes, YAML schema or persistence changes, boot-file generation, external command execution, deployment or rollback logic, configuration changes, and refactoring with potential runtime effects. Pure formatting, comment typo corrections, and other proven behavior-neutral edits are trivial.
@@ -27,6 +31,8 @@ Nontrivial changes include feature additions or removals, CGI dispatch or form b
 - Do not invent defaults, executable paths, service names, network topology, data migration policy, or operational permissions when they are not defined; ask or document the unresolved requirement.
 
 ## 3. Preserve architecture and compatibility
+
+- Reuse existing implementations, conventions, and architecture where practical.
 
 - Preserve the `provmanager.cgi` CGI entry point and documented `action` routing contract.
 - Maintain Python 3.9–3.12 compatibility. Do not introduce syntax or standard-library APIs unavailable in Python 3.9; for example use `datetime.timezone.utc`, not `datetime.UTC`.
@@ -91,6 +97,7 @@ Nontrivial changes include feature additions or removals, CGI dispatch or form b
 ## 9. Regression tests are part of the change
 
 - Follow `regression_testing_requirements.md` for test structure, fixture behavior, traceability, and coverage; create/update focused tests with behavioral changes.
+- Run targeted tests during development. Run broader regression tests when warranted by the change's scope, shared dependencies, or risk, and always run checks required by the applicable specifications.
 - Run tests against **temporary** YAML, configuration, staging, backup, audit, Kickstart, DHCP, TFTP, and Ansible paths. Mock NSS, `REMOTE_USER`, system commands, subprocess execution, time, and relevant filesystem failures.
 - Test denial of unauthorized direct POSTs as well as role-aware presentation.
 - Test malicious/invalid inputs, duplicate identifiers, stale revisions, concurrent writers, atomic-write failures, lock timeouts, partial apply failures, rollback, and safe error handling.
@@ -115,7 +122,9 @@ python3 -m pytest -q
 
 ## 11. Patch and repository workflow
 
-- Prefer minimal, reviewable changes. Avoid unrelated cleanup, wholesale reformatting, or speculative feature work.
+- Prefer minimal, reviewable changes. Avoid unrelated refactoring, cleanup, formatting changes, and speculative improvements.
+- Keep progress updates and implementation summaries concise. Focus on material findings, decisions, blockers, and verification results.
+- Preserve correctness, security, reliability, and required test coverage when reducing time or resource use.
 - Do not commit ordinary development changes directly to `main`; use a development branch, consistent with the repository requirements.
 - Preserve the source-default `PROVMANAGER_VERSION` value before ordinary source commits. Generated development/release stamping belongs to the documented build process.
 - **For patch-only responses**, unless the project owner requests another format, output a valid unified diff: include `---` and `+++` file headers, `@@` hunks, and at least three unchanged context lines where available; do not substitute snippets or ellipses for unchanged source. Do not wrap a patch-only response in Markdown fences or surrounding prose.
