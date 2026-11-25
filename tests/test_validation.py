@@ -36,6 +36,24 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_ready_host_reports_invalid_selected_catalog_records(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(Path(config.installers_file), "  - {id: image, name: Image}\n")
+    _catalog(Path(config.templates_file), "  - {id: setup, name: Setup, template_type: invalid}\n")
+    _catalog(
+        Path(config.hosts_file),
+        "  - id: host-1\n    hostname: host.example\n"
+        "    mac_addresses: ['02:00:00:00:00:01']\n"
+        "    provisioning_state: ready\n    installer_id: image\n    template_id: setup\n"
+        "  - {id: draft, hostname: draft.example, mac_addresses: ['02:00:00:00:00:02'], installer_id: image, template_id: setup}\n",
+    )
+    findings = [item for item in validate_catalogs(config) if item.message.startswith("The selected") and "validation errors" in item.message]
+    assert [(item.resource, item.message, item.location) for item in findings] == [
+        ("host.example", "The selected installer has validation errors.", "Hosts, line 7, column 19"),
+        ("host.example", "The selected template has validation errors.", "Hosts, line 8, column 18"),
+    ]
+
+
 def test_ready_host_checks_required_template_values_with_host_precedence(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(Path(config.templates_file), "  - {id: t, name: Setup, allowed_variables: [site, count, flag], required_variables: [site, count, flag], variable_defaults: {site: lab, flag: false}}\n")

@@ -344,8 +344,11 @@ def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
     locations = {}
+    invalid_records = {action: set() for action in CATALOG_ACTIONS}
 
     def report(action, record, finding, field=None):
+        if finding.severity == "error":
+            invalid_records[action].add(record["id"])
         marks = locations[action].get(record["id"], {})
         mark = marks.get(field) or marks.get(None)
         if mark is not None:
@@ -545,6 +548,21 @@ def validate_catalogs(config: Config) -> List[Finding]:
     for installer in catalogs["installers"]:
         for finding in _installer_readiness_findings(installer, config):
             report("installers", installer, finding)
+    for host in catalogs["hosts"]:
+        if host.get("provisioning_state") not in ("ready", "staged"):
+            continue
+        resource = str(host.get("hostname") or host["id"])
+        for action, index, field, label in (
+            ("installers", installers, "installer_id", "installer"),
+            ("templates", templates, "template_id", "template"),
+        ):
+            reference = host.get(field)
+            if (
+                isinstance(reference, str)
+                and reference in invalid_records[action]
+                and index[reference].get("enabled", True) is not False
+            ):
+                report("hosts", host, Finding("error", resource, f"The selected {label} has validation errors."), field)
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return findings
