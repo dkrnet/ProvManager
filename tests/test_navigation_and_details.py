@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from provmanager import Config, Finding, Identity, dispatch
+from provmanager import Config, Finding, Identity, dispatch, load_catalog
 
 
 def _config(tmp_path: Path) -> Config:
@@ -58,9 +58,10 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
         "  - {id: e, hostname: invalid.example, provisioning_state: ready}\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr("provmanager.validate_catalogs", lambda config: [
-        Finding("error", "invalid.example", "Invalid host", catalog="hosts", record_id="e")
-    ])
+    monkeypatch.setattr("provmanager._validated_catalog_snapshot", lambda config: (
+        {"hosts": load_catalog(config.hosts_file)},
+        [Finding("error", "invalid.example", "Invalid host", catalog="hosts", record_id="e")],
+    ))
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
     response = _dispatch("action=preview", viewer, config)
     assert response.status == "200 OK"
@@ -74,6 +75,22 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert b"private-value" not in response.body
     assert not Path(config.inventory_output_file).exists()
     assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
+
+
+def test_inventory_preview_reads_each_catalog_once(tmp_path: Path, monkeypatch) -> None:
+    config = _config(tmp_path)
+    reads = []
+
+    def track_load(path, locations=None):
+        reads.append(path)
+        return load_catalog(path, locations)
+
+    monkeypatch.setattr("provmanager.load_catalog", track_load)
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
+    response = _dispatch("action=preview", viewer, config)
+    assert response.status == "200 OK"
+    assert b"0 included, 0 excluded" in response.body
+    assert reads == [config.hosts_file, config.installers_file, config.roles_file, config.templates_file]
 
 
 def test_template_detail_lists_variable_requirements_and_default_availability(tmp_path: Path) -> None:

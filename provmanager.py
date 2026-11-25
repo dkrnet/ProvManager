@@ -522,6 +522,11 @@ def _has_disabled_role(role_ids: Any, roles: Dict[str, dict]) -> bool:
 
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
+    return _validated_catalog_snapshot(config)[1]
+
+
+def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str, Any]]], List[Finding]]:
+    """Return the catalog records and the findings for those exact records."""
     catalogs = {}
     locations = {}
     invalid_records = {action: set() for action in CATALOG_ACTIONS}
@@ -784,7 +789,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 report("hosts", host, Finding("error", resource, f"The selected {label} has validation errors."), field)
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
-    return findings
+    return catalogs, findings
 
 
 def resolve_identity(username: str, config: Config) -> Optional[Identity]:
@@ -1416,11 +1421,11 @@ def dispatch(
         title = "Ansible inventory preview"
         if "hosts_read" not in identity.capabilities:
             return _html_response(title, "<p>Host read access is required.</p>", "403 Forbidden", public=False, identity=identity, config=active)
-        try:
-            hosts = load_catalog(active.hosts_file)
-        except CatalogError as error:
-            return _html_response(title, f"<p>{html.escape(str(error))}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
-        content = _inventory_preview(hosts, validate_catalogs(active))
+        catalogs, findings = _validated_catalog_snapshot(active)
+        host_error = next((finding for finding in findings if not finding.catalog and finding.resource == CATALOG_ACTIONS["hosts"][0] and finding.severity == "error"), None)
+        if host_error:
+            return _html_response(title, f"<p>{html.escape(host_error.message)}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
+        content = _inventory_preview(catalogs["hosts"], findings)
         return _html_response(title, content, public=False, identity=identity, config=active)
     if action == "template_preview":
         title = "Rendered template preview"
