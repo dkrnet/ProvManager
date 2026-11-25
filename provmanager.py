@@ -901,6 +901,34 @@ class Response:
         return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + self.body
 
 
+def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> str:
+    if any(not finding.catalog and finding.severity == "error" for finding in findings):
+        return '<p>Inventory preview is unavailable because a catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>'
+    invalid = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "error"}
+    included = {}
+    excluded = []
+    for host in sorted(hosts, key=lambda record: (str(record.get("hostname") or record["id"]).casefold(), record["id"])):
+        hostname = host.get("hostname") or host["id"]
+        if host.get("enabled", True) is False:
+            reason = "Disabled"
+        elif host.get("provisioning_state") not in ("ready", "staged"):
+            reason = "Provisioning state must be ready or staged"
+        elif host["id"] in invalid:
+            reason = "Has validation errors"
+        else:
+            address = host.get("ipv4_address") or host.get("ipv6_address")
+            included[hostname] = {"ansible_host": address} if address else {}
+            continue
+        excluded.append(f"<li>{_record_link('hosts', host)} — {reason}</li>")
+    inventory = yaml.safe_dump({"all": {"hosts": included}}, sort_keys=False, allow_unicode=True)
+    exclusions = "<ul>{}</ul>".format("".join(excluded)) if excluded else "<p>No hosts excluded.</p>"
+    return (
+        f"<p>Read-only preview. {len(included)} included, {len(excluded)} excluded.</p>"
+        f"<h2>Inventory YAML</h2><pre>{html.escape(inventory)}</pre>"
+        f"<h2>Excluded hosts</h2>{exclusions}"
+    )
+
+
 def _navigation(identity: Identity) -> str:
     links = []
     for capability, label, action in (
@@ -915,6 +943,8 @@ def _navigation(identity: Identity) -> str:
     ):
         if capability in identity.capabilities:
             links.append('<a href="?action={}">{}</a>'.format(action, label))
+    if {"preview", "hosts_read"}.issubset(identity.capabilities):
+        links.append('<a href="?action=preview">Inventory preview</a>')
     return "<nav>{}</nav>".format(" | ".join(links))
 
 
@@ -1378,6 +1408,16 @@ def dispatch(
             identity=identity,
             config=active,
         )
+    if action == "preview":
+        title = "Ansible inventory preview"
+        if "hosts_read" not in identity.capabilities:
+            return _html_response(title, "<p>Host read access is required.</p>", "403 Forbidden", public=False, identity=identity, config=active)
+        try:
+            hosts = load_catalog(active.hosts_file)
+        except CatalogError as error:
+            return _html_response(title, f"<p>{html.escape(str(error))}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
+        content = _inventory_preview(hosts, validate_catalogs(active))
+        return _html_response(title, content, public=False, identity=identity, config=active)
     if action == "template_preview":
         title = "Rendered template preview"
         if not {"hosts_read", "catalogs_read"}.issubset(identity.capabilities):

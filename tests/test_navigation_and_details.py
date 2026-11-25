@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from provmanager import Config, Identity, dispatch
+from provmanager import Config, Finding, Identity, dispatch
 
 
 def _config(tmp_path: Path) -> Config:
@@ -34,6 +34,33 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     assert b">Installers</a>" in response.body
     assert b">Settings</a>" not in response.body
     assert b">Audit Log</a>" not in response.body
+
+
+def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Path, monkeypatch) -> None:
+    config = replace(_config(tmp_path), inventory_output_file=str(tmp_path / "inventory.yml"))
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        "  - {id: b, hostname: beta.example, provisioning_state: staged}\n"
+        "  - {id: a, hostname: alpha.example, provisioning_state: ready, ipv4_address: 192.0.2.10, variables: {token: private-value}}\n"
+        "  - {id: c, hostname: disabled.example, provisioning_state: ready, enabled: false}\n"
+        "  - {id: d, hostname: draft.example}\n"
+        "  - {id: e, hostname: invalid.example, provisioning_state: ready}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("provmanager.validate_catalogs", lambda config: [
+        Finding("error", "invalid.example", "Invalid host", catalog="hosts", record_id="e")
+    ])
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
+    response = _dispatch("action=preview", viewer, config)
+    assert response.status == "200 OK"
+    assert b"2 included, 3 excluded" in response.body
+    inventory = response.body.split(b"<pre>", 1)[1].split(b"</pre>", 1)[0]
+    assert inventory == b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n    beta.example: {}\n"
+    assert b"Has validation errors" in response.body
+    assert b"Provisioning state must be ready or staged" in response.body
+    assert b"private-value" not in response.body
+    assert not Path(config.inventory_output_file).exists()
+    assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 
 
 def test_template_detail_lists_variable_requirements_and_default_availability(tmp_path: Path) -> None:

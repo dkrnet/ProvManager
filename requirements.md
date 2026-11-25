@@ -406,6 +406,7 @@ All pages described below shall share the presentation, authorization, error, ca
 
 - The generated Ansible inventory shall include only eligible enabled hosts and their intended groups/variables in stable order.
 - A preview shall show included/excluded hosts and the reason for each exclusion.
+- The initial read-only inventory preview shall list enabled ready or staged hosts with no blocking host findings under `all.hosts`. Use IPv4, then IPv6, for `ansible_host` when configured. Custom group and variable mappings are deferred.
 - Sensitive data shall never be exposed to unauthorized viewers or included in browser previews.
 - The output shall be validated as YAML and written atomically; avoid unsafe string concatenation and quoting errors.
 - The inventory target shall be `INVENTORY_OUTPUT_FILE` when explicitly applied, not when merely previewed.
