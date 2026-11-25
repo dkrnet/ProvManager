@@ -177,17 +177,23 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), kickstart_root=str(tmp_path), tftp_root=str(tmp_path))
     Path(config.hosts_file).write_text(
         "schema_version: 1\nrecords: [{id: host, hostname: host.example, provisioning_state: ready, "
-        "mac_addresses: ['02:00:00:00:00:01'], kickstart_template_id: ks, boot_template_id: boot}]\n",
+        "mac_addresses: ['02:00:00:00:00:01'], installer_id: image, kickstart_template_id: ks, boot_template_id: boot, "
+        "variables: {installer_kernel_path: ignored}}]\n",
         encoding="utf-8",
     )
     ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
     ks.write_text("# Kickstart preview", encoding="utf-8")
-    boot.write_text("# Boot preview for {{ hostname }}", encoding="utf-8")
+    boot.write_text("# Boot preview for {{ hostname }}: /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}", encoding="utf-8")
+    Path(config.installers_file).write_text(
+        "schema_version: 1\nrecords: [{id: image, name: Image, kernel_path: os/vmlinuz, initrd_path: os/initrd.img, efi_path: os/boot.efi}]\n",
+        encoding="utf-8",
+    )
     Path(config.templates_file).write_text(
         "schema_version: 1\nrecords:\n"
         f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
         f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}', "
-        "allowed_variables: [hostname], required_variables: [hostname], variable_defaults: {hostname: fallback.example}}\n",
+        "allowed_variables: [hostname, installer_kernel_path, installer_initrd_path, installer_efi_path], "
+        "required_variables: [hostname, installer_kernel_path], variable_defaults: {hostname: fallback.example}}\n",
         encoding="utf-8",
     )
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
@@ -196,13 +202,22 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     assert b"template_id=boot\">Preview boot template" in body
     assert b"must select its template" not in body
     assert b"Missing required template variables" not in body
-    for template_id, expected in (("ks", b"# Kickstart preview"), ("boot", b"# Boot preview for host.example")):
+    for template_id, expected in (
+        ("ks", b"# Kickstart preview"),
+        ("boot", b"# Boot preview for host.example: /os/vmlinuz /os/initrd.img /os/boot.efi"),
+    ):
         assert b"<pre>" + expected + b"</pre>" in _dispatch(
             f"action=template_preview&host_id=host&template_id={template_id}", viewer, config,
         ).body
         assert b'<option value="host">host.example</option>' in _dispatch(
             f"action=template_view&id={template_id}", viewer, config,
         ).body
+    installer_catalog = Path(config.installers_file)
+    installer_catalog.write_text(installer_catalog.read_text(encoding="utf-8").replace("kernel_path: os/vmlinuz, ", ""), encoding="utf-8")
+    assert b"Missing required template variables: installer_kernel_path." in _dispatch(
+        "action=validate&host_id=host", viewer, config,
+    ).body
+    assert _dispatch("action=template_preview&host_id=host&template_id=boot", viewer, config).status.startswith("400")
     hosts = Path(config.hosts_file)
     hosts.write_text(hosts.read_text(encoding="utf-8").replace("boot_template_id: boot", "boot_template_id: ks"), encoding="utf-8")
     assert b"Referenced boot template must have template_type: boot." in _dispatch(

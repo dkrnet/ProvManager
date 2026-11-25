@@ -32,6 +32,11 @@ VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TEMPLATE_SCALAR_TYPES = (str, int, float, bool)
 HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
 HOST_TEMPLATE_TYPES = {"template_id": None, "kickstart_template_id": "kickstart", "boot_template_id": "boot"}
+INSTALLER_TEMPLATE_PATHS = {
+    "installer_kernel_path": "kernel_path",
+    "installer_initrd_path": "initrd_path",
+    "installer_efi_path": "efi_path",
+}
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
 ROLE_CAPABILITIES = {
@@ -302,7 +307,10 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
     return chunks
 
 
-def _template_value(name: str, host: dict, values: dict, defaults: dict) -> Any:
+def _template_value(name: str, host: dict, values: dict, defaults: dict, installer: Optional[dict]) -> Any:
+    if name in INSTALLER_TEMPLATE_PATHS:
+        path = installer.get(INSTALLER_TEMPLATE_PATHS[name]) if installer else None
+        return path if isinstance(path, str) and path.strip() else None
     if name in values:
         return values[name]
     if name == "hostname":
@@ -312,7 +320,7 @@ def _template_value(name: str, host: dict, values: dict, defaults: dict) -> Any:
     return defaults.get(name)
 
 
-def _render_template_preview(source: str, host: dict, template: dict, limit: int) -> str:
+def _render_template_preview(source: str, host: dict, template: dict, limit: int, installer: Optional[dict] = None) -> str:
     allowed = template.get("allowed_variables", [])
     required = template.get("required_variables", [])
     defaults = template.get("variable_defaults", {})
@@ -324,7 +332,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     allowed_names = set(allowed)
     if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
         raise ValueError("Check the template allowlist for duplicate or undeclared names.")
-    missing = sorted(name for name in required if _template_value(name, host, values, defaults) is None)
+    missing = sorted(name for name in required if _template_value(name, host, values, defaults, installer) is None)
     if missing:
         raise ValueError("Missing required template variables: " + ", ".join(missing) + ".")
 
@@ -332,7 +340,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     remaining = limit
     for index, chunk in enumerate(chunks):
         if index % 2:
-            value = _template_value(chunk, host, values, defaults)
+            value = _template_value(chunk, host, values, defaults, installer)
             if value is None:
                 raise ValueError(f"Template variable {chunk} has no value.")
             if not isinstance(value, TEMPLATE_SCALAR_TYPES):
@@ -793,6 +801,8 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
         resource = str(host.get("hostname") or host["id"])
         variables = host.get("variables", {})
         template_roles = []
+        installer_id = host.get("installer_id")
+        installer = installers.get(installer_id) if isinstance(installer_id, str) else None
         for template_field in HOST_TEMPLATE_TYPES:
             template_id = host.get(template_field)
             template = templates.get(template_id, {}) if isinstance(template_id, str) else {}
@@ -805,13 +815,16 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                     missing = sorted({
                         name for name in (*required, *template_placeholders.get(template_id, ()))
                         if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
-                        and name in allowed and _template_value(name, host, variables, defaults) is None
+                        and name in allowed and _template_value(name, host, variables, defaults, installer) is None
                     })
                     if missing:
                         message = "Missing required template variables: " + ", ".join(missing) + "."
-                        report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else template_field)
+                        field = "installer_id" if all(name in INSTALLER_TEMPLATE_PATHS for name in missing) else (
+                            "variables" if "variables" in host else template_field
+                        )
+                        report("hosts", host, Finding("error", resource, message), field)
                     for name in sorted(template_placeholders.get(template_id, ())):
-                        value = _template_value(name, host, variables, defaults)
+                        value = _template_value(name, host, variables, defaults, installer)
                         if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
                             field = "variables" if name in variables else template_field
                             message = f"Template variable {name} must have a scalar value."
@@ -1553,11 +1566,19 @@ def dispatch(
             return _html_response(title, f"<p>{html.escape(str(error))}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
         if host is None or template is None:
             return _html_response(title, "<p>The host or template was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
+        installer = None
+        installer_id = host.get("installer_id")
+        allowed = template.get("allowed_variables", [])
+        if isinstance(installer_id, str) and installer_id and isinstance(allowed, list) and any(name in allowed for name in INSTALLER_TEMPLATE_PATHS):
+            try:
+                installer = next((record for record in load_catalog(active.installers_file) if record["id"] == installer_id), None)
+            except CatalogError as error:
+                return _html_response(title, f"<p>{html.escape(str(error))}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
         source = _read_template_source(template, active)
         try:
             if source is None:
                 raise ValueError("Template source is unavailable. Check the content path, readability, encoding, and size limit.")
-            rendered = _render_template_preview(source, host, template, active.max_template_bytes)
+            rendered = _render_template_preview(source, host, template, active.max_template_bytes, installer)
         except ValueError as error:
             return _html_response(title, f"<p>{html.escape(str(error))}</p>", "400 Bad Request", public=False, identity=identity, config=active)
         context = "<p>Host {} · Template {}</p>".format(_record_link("hosts", host), _record_link("templates", template))

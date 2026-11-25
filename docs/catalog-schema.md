@@ -34,6 +34,12 @@ To use `{{ hostname }}` in a template, add `hostname` to its
 `allowed_variables`. The host's top-level `hostname` supplies the value
 unless the host explicitly defines `variables.hostname`. The template
 default applies when neither host value is available.
+
+To use boot paths from the installer selected by the host's `installer_id`,
+allowlist `installer_kernel_path`, `installer_initrd_path`, or
+`installer_efi_path` and reference them with `{{ name }}`. Values are the
+TFTP-relative paths as stored in the installer record. These reserved names
+are resolved from the installer alone.
 The inventory preview can filter hosts by one assigned group. Included hosts
 retain all their group memberships in the filtered YAML.
 
