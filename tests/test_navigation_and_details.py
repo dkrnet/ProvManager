@@ -57,7 +57,7 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     source.write_text("{{ site }} {{ count }} {{ api_token }}", encoding="utf-8")
     Path(config.hosts_file).write_text("schema_version: 1\nrecords: [{id: host, template_id: setup, variables: {site: '<lab>', api_token: private-value}}]\n", encoding="utf-8")
     Path(config.templates_file).write_text(
-        f"schema_version: 1\nrecords: [{{id: setup, template_type: kickstart, content_path: '{source}', allowed_variables: [site, count, api_token], variable_defaults: {{site: default, count: 0}}}}]\n",
+        f"schema_version: 1\nrecords: [{{id: setup, name: Setup, template_type: kickstart, content_path: '{source}', allowed_variables: [site, count, api_token], variable_defaults: {{site: default, count: 0}}}}]\n",
         encoding="utf-8",
     )
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
@@ -72,6 +72,13 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     assert b"Unsupported template syntax" in _dispatch(query, viewer, config).body
     source.write_text("{{ missing }}", encoding="utf-8")
     assert b"is not allowlisted" in _dispatch(query, viewer, config).body
+    scoped = "action=validate&catalog=templates&record_id=setup"
+    source.write_text("# template\n{{ missing }}", encoding="utf-8")
+    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch(scoped, viewer, config).body
+    source.write_text("# template\n{% unsupported %}", encoding="utf-8")
+    assert b"Unsupported template syntax at source line 2." in _dispatch(scoped, viewer, config).body
+    source.write_text("{{ site }}", encoding="utf-8")
+    assert b"No validation findings match" in _dispatch(scoped, viewer, config).body
 
 
 def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> None:

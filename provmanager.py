@@ -263,6 +263,24 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
     return heading + "<pre>{}</pre>".format(html.escape(source))
 
 
+def _checked_template_chunks(source: str, allowed_names: set) -> List[str]:
+    chunks = []
+    end = 0
+    token_pattern = r"\{\{[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\}\}|\{\{|\}\}|\{%|%\}|\{#|#\}"
+    for match in re.finditer(token_pattern, source):
+        name = match.group(1)
+        if name is None:
+            line = source.count("\n", 0, match.start()) + 1
+            raise ValueError(f"Unsupported template syntax at source line {line}. Use {{{{ variable_name }}}} placeholders.")
+        if name not in allowed_names:
+            line = source.count("\n", 0, match.start()) + 1
+            raise ValueError(f"Template variable {name} is not allowlisted (source line {line}).")
+        chunks.extend((source[end:match.start()], name))
+        end = match.end()
+    chunks.append(source[end:])
+    return chunks
+
+
 def _render_template_preview(source: str, host: dict, template: dict, limit: int) -> str:
     allowed = template.get("allowed_variables", [])
     required = template.get("required_variables", [])
@@ -279,15 +297,10 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     if missing:
         raise ValueError("Missing required template variables: " + ", ".join(missing) + ".")
 
-    chunks = re.split(r"\{\{[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\}\}", source)
+    chunks = _checked_template_chunks(source, allowed_names)
     remaining = limit
     for index, chunk in enumerate(chunks):
-        if index % 2 == 0:
-            if any(delimiter in chunk for delimiter in ("{{", "}}", "{%", "%}", "{#", "#}")):
-                raise ValueError("Unsupported template syntax. Use {{ variable_name }} placeholders.")
-        else:
-            if chunk not in allowed_names:
-                raise ValueError(f"Template variable {chunk} is not allowlisted.")
+        if index % 2:
             value = values.get(chunk, defaults.get(chunk))
             if value is None:
                 raise ValueError(f"Template variable {chunk} has no value.")
@@ -1374,6 +1387,17 @@ def dispatch(
                 if (not finding.catalog and finding.severity == "error")
                 or (finding.catalog == scope_catalog and finding.record_id == scope_id)
             ]
+        if scope_catalog == "templates":
+            allowed = record.get("allowed_variables", [])
+            if isinstance(allowed, list) and all(isinstance(name, str) for name in allowed):
+                source = _read_template_source(record, active)
+                try:
+                    if source is None:
+                        raise ValueError("Template source could not be checked. Verify the path, readability, UTF-8 encoding, and size.")
+                    _checked_template_chunks(source, set(allowed))
+                except ValueError as error:
+                    resource = str(record.get("name") or scope_id)
+                    findings.append(Finding("error", resource, str(error), catalog=scope_catalog, record_id=scope_id))
         return _html_response(
             title,
             _findings_table(findings, params, catalogs),
