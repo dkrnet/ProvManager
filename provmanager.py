@@ -348,6 +348,27 @@ def _template_value(name: str, host: dict, values: dict, defaults: dict, install
         return path if isinstance(path, str) and path.strip() else None
     if name == "short_hostname":
         return _short_hostname(host)
+    if name == "ipv4_address":
+        address = host.get("ipv4_address")
+        if not isinstance(address, str):
+            return None
+        try:
+            return str(ipaddress.IPv4Address(address))
+        except ValueError:
+            return None
+    if name in ("mac_address", "mac_addresses"):
+        addresses = host.get("mac_addresses")
+        if not isinstance(addresses, list) or not addresses:
+            return None
+        normalized = [_normalize_mac(address) for address in addresses]
+        if any(address is None for address in normalized):
+            return None
+        return normalized[0] if name == "mac_address" else ",".join(normalized)
+    if name == "role_ids":
+        roles = host.get("role_ids", [])
+        if isinstance(roles, list) and all(isinstance(role, str) for role in roles):
+            return ",".join(roles)
+        return None
     if name in values:
         return values[name]
     if name == "hostname":

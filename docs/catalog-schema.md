@@ -38,6 +38,13 @@ Allowlist `short_hostname` to use `{{ short_hostname }}`. This reserved
 variable is derived from the top-level hostname, so `node01.example.com`
 and `node01` both yield `node01`.
 
+Boot and Kickstart templates can also allowlist `ipv4_address`,
+`mac_address` (the first MAC), `mac_addresses` (all MACs), and
+`role_ids` (directly assigned Ansible role IDs). The two list variables
+render as comma-separated text in host record order. These reserved variables
+use the top-level host fields. A host without role assignments renders an
+empty string for `role_ids`.
+
 To use boot paths from the installer selected by the host's `installer_id`,
 allowlist `installer_kernel_path`, `installer_initrd_path`, or
 `installer_efi_path` and reference them with `{{ name }}`. Values are the

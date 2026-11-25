@@ -178,12 +178,13 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     config = replace(_config(tmp_path), kickstart_root=str(tmp_path), tftp_root=str(tmp_path))
     Path(config.hosts_file).write_text(
         f"schema_version: 1\nrecords: [{{id: host, hostname: {hostname}, provisioning_state: ready, "
-        "mac_addresses: ['02:00:00:00:00:01'], installer_id: image, kickstart_template_id: ks, boot_template_id: boot, "
+        "mac_addresses: ['02:00:00:00:00:01', '02:00:00:00:00:02'], ipv4_address: 192.0.2.10, "
+        "role_ids: [base, updates], installer_id: image, kickstart_template_id: ks, boot_template_id: boot, "
         "variables: {installer_kernel_path: ignored}}]\n",
         encoding="utf-8",
     )
     ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
-    ks.write_text("# Kickstart preview", encoding="utf-8")
+    ks.write_text("# Kickstart preview {{ ipv4_address }} {{ mac_address }} {{ mac_addresses }} {{ role_ids }}", encoding="utf-8")
     boot.write_text(
         "# Boot preview for {{ hostname }} ({{ short_hostname }}): /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}\n"
         "inst.ks={{ installer_kickstart_path }} inst.stage2={{ installer_stage2_path }}",
@@ -196,7 +197,8 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     )
     Path(config.templates_file).write_text(
         "schema_version: 1\nrecords:\n"
-        f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
+        f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}', "
+        "allowed_variables: [ipv4_address, mac_address, mac_addresses, role_ids]}\n"
         f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}', "
         "allowed_variables: [hostname, short_hostname, installer_kernel_path, installer_initrd_path, installer_efi_path, installer_kickstart_path, installer_stage2_path], "
         "required_variables: [hostname, short_hostname, installer_kernel_path], variable_defaults: {hostname: fallback.example}}\n",
@@ -209,7 +211,7 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     assert b"must select its template" not in body
     assert b"Missing required template variables" not in body
     for template_id, expected in (
-        ("ks", b"# Kickstart preview"),
+        ("ks", b"# Kickstart preview 192.0.2.10 02:00:00:00:00:01 02:00:00:00:00:01,02:00:00:00:00:02 base,updates"),
         ("boot", f"# Boot preview for {hostname} (host): /os/vmlinuz /os/initrd.img /os/boot.efi\n".encode()
          + b"inst.ks=https://install.example/setup.ks inst.stage2=https://install.example/rescue/"),
     ):
@@ -232,7 +234,7 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     assert combined.status == "200 OK"
     assert str(target).encode() in combined.body
     assert b"inst.ks=http://provisioning.example/kickstart/host.cfg" in combined.body
-    assert b"<pre># Kickstart preview</pre>" in combined.body
+    assert b"<pre># Kickstart preview 192.0.2.10" in combined.body
     assert not target.exists()
     assert _dispatch(combined_query, replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
     original_hosts = Path(config.hosts_file).read_text(encoding="utf-8")
