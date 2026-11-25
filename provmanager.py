@@ -27,6 +27,7 @@ except ImportError:  # pragma: no cover - safe plaintext fallback is tested dire
 
 
 PROVMANAGER_VERSION = "1.0.0"
+HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
 ROLE_CAPABILITIES = {
@@ -385,6 +386,9 @@ def validate_catalogs(config: Config) -> List[Finding]:
     used_ips = {}
     for host in catalogs["hosts"]:
         resource = str(host.get("hostname") or host["id"])
+        if "provisioning_state" in host and host["provisioning_state"] not in HOST_PROVISIONING_STATES:
+            message = "Provisioning state must be one of: " + ", ".join(HOST_PROVISIONING_STATES) + "."
+            report("hosts", host, Finding("error", resource, message), "provisioning_state")
         if not _valid_hostname(host.get("hostname")):
             report("hosts", host, Finding("error", resource, "Hostname is not a valid DNS name."), "hostname")
         macs = host.get("mac_addresses", [])
@@ -399,17 +403,22 @@ def validate_catalogs(config: Config) -> List[Finding]:
                     report("hosts", host, Finding("error", resource, "A MAC address is already used by another enabled host."), "mac_addresses")
                 elif host.get("enabled", True):
                     used_macs[normalized] = host["id"]
-        for field in ("ipv4_address", "ipv6_address"):
+        for field, version in (("ipv4_address", 4), ("ipv6_address", 6)):
             value = host.get(field)
-            if not value:
+            if value is None or value == "":
                 continue
             try:
-                parsed = str(ipaddress.ip_address(value))
+                if not isinstance(value, str):
+                    raise ValueError
+                address = ipaddress.ip_address(value)
+                if address.version != version:
+                    raise ValueError
+                parsed = str(address)
             except ValueError:
                 report("hosts", host, Finding("error", resource, "{} is invalid.".format(field.replace("_", " ").upper())), field)
                 continue
             if host.get("enabled", True) and parsed in used_ips:
-                report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), None)
+                report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), field)
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
         for field, index, label in (("installer_id", installers, "installer"), ("template_id", templates, "template")):

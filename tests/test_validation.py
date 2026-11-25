@@ -36,6 +36,24 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_host_state_and_ip_family_findings_point_to_fields(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.hosts_file),
+        "  - id: host-1\n"
+        "    hostname: host.example\n"
+        "    mac_addresses: ['02:00:00:00:00:01']\n"
+        "    provisioning_state: [ready]\n"
+        "    ipv4_address: '2001:db8::1'\n"
+        "    ipv6_address: 192.0.2.1\n",
+    )
+    state, ipv4, ipv6 = validate_catalogs(config)
+    assert state.message.startswith("Provisioning state must be one of")
+    assert state.location == "Hosts, line 6, column 25"
+    assert ipv4.message == "IPV4 ADDRESS is invalid."
+    assert ipv6.message == "IPV6 ADDRESS is invalid."
+
+
 def test_invalid_hosts_yaml_finding_reports_parser_location(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(
