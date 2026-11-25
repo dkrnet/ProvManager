@@ -584,6 +584,16 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
     used_ips = {}
     for host in catalogs["hosts"]:
         resource = str(host.get("hostname") or host["id"])
+        inventory_groups = host.get("inventory_groups", [])
+        if not isinstance(inventory_groups, list) or any(
+            not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name)
+            or name in {"all", "ungrouped"}
+            for name in inventory_groups
+        ):
+            message = "Inventory groups must be a list of identifiers. The names all and ungrouped are reserved."
+            report("hosts", host, Finding("error", resource, message), "inventory_groups")
+        elif len(inventory_groups) != len(set(inventory_groups)):
+            report("hosts", host, Finding("error", resource, "Inventory groups must not contain duplicate names."), "inventory_groups")
         variables = host.get("variables", {})
         if not isinstance(variables, dict):
             report("hosts", host, Finding("error", resource, "Host variables must be a mapping of names to values."), "variables")
@@ -911,6 +921,7 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
         return '<p>Inventory preview is unavailable because a catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>'
     invalid = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "error"}
     included = {}
+    groups = {}
     excluded = []
     for host in sorted(hosts, key=lambda record: (str(record.get("hostname") or record["id"]).casefold(), record["id"])):
         hostname = host.get("hostname") or host["id"]
@@ -926,9 +937,14 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
         else:
             address = host.get("ipv4_address") or host.get("ipv6_address")
             included[hostname] = {"ansible_host": address} if address else {}
+            for group in host.get("inventory_groups", []):
+                groups.setdefault(group, {})[hostname] = {}
             continue
         excluded.append(f"<li>{_record_link('hosts', host)} — {reason}{validation_link}</li>")
-    inventory = yaml.safe_dump({"all": {"hosts": included}}, sort_keys=False, allow_unicode=True)
+    all_group = {"hosts": included}
+    if groups:
+        all_group["children"] = {name: {"hosts": groups[name]} for name in sorted(groups)}
+    inventory = yaml.safe_dump({"all": all_group}, sort_keys=False, allow_unicode=True)
     exclusions = "<ul>{}</ul>".format("".join(excluded)) if excluded else "<p>No hosts excluded.</p>"
     return (
         f"<p>Read-only preview. {len(included)} included, {len(excluded)} excluded.</p>"

@@ -19,6 +19,11 @@ to the start of the record.
 
 ## Minimal examples
 
+Hosts may declare `inventory_groups: [web, linux]` to join Ansible groups in the
+inventory preview. Use unique, case-sensitive identifiers made of ASCII letters,
+digits, and underscores, starting with a letter or underscore. The names
+`all` and `ungrouped` are reserved.
+
 When supplied, `enabled` must be a YAML boolean. Omitted values default to
 enabled. Optional `description` fields must be text within `MAX_DESCRIPTION_CHARS`.
 When present, `created_at` and `updated_at` must be ISO 8601 timestamps in UTC.

@@ -36,6 +36,18 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_inventory_groups_reject_reserved_and_duplicate_names(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.hosts_file),
+        "  - {id: a, hostname: a.example, mac_addresses: ['02:00:00:00:00:01'], inventory_groups: [all]}\n"
+        "  - {id: b, hostname: b.example, mac_addresses: ['02:00:00:00:00:02'], inventory_groups: [web, web]}\n",
+    )
+    reserved, duplicate = validate_catalogs(config)
+    assert "reserved" in reserved.message and reserved.location.startswith("Hosts, line 3, column ")
+    assert "duplicate names" in duplicate.message and duplicate.location.startswith("Hosts, line 4, column ")
+
+
 def test_ready_host_reports_invalid_selected_catalog_records(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(Path(config.installers_file), "  - {id: image, name: Image}\n")

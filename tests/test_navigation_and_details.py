@@ -51,9 +51,9 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     config = replace(_config(tmp_path), inventory_output_file=str(tmp_path / "inventory.yml"))
     Path(config.hosts_file).write_text(
         "schema_version: 1\nrecords:\n"
-        "  - {id: b, hostname: beta.example, provisioning_state: staged}\n"
-        "  - {id: a, hostname: alpha.example, provisioning_state: ready, ipv4_address: 192.0.2.10, variables: {token: private-value}}\n"
-        "  - {id: c, hostname: disabled.example, provisioning_state: ready, enabled: false}\n"
+        "  - {id: b, hostname: beta.example, provisioning_state: staged, inventory_groups: [web]}\n"
+        "  - {id: a, hostname: alpha.example, provisioning_state: ready, ipv4_address: 192.0.2.10, inventory_groups: [web, linux], variables: {token: private-value}}\n"
+        "  - {id: c, hostname: disabled.example, provisioning_state: ready, enabled: false, inventory_groups: [disabled_group]}\n"
         "  - {id: d, hostname: draft.example}\n"
         "  - {id: e, hostname: invalid.example, provisioning_state: ready}\n",
         encoding="utf-8",
@@ -67,7 +67,11 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert response.status == "200 OK"
     assert b"2 included, 3 excluded" in response.body
     inventory = response.body.split(b"<pre>", 1)[1].split(b"</pre>", 1)[0]
-    assert inventory == b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n    beta.example: {}\n"
+    assert inventory == (
+        b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n    beta.example: {}\n"
+        b"  children:\n    linux:\n      hosts:\n        alpha.example: {}\n"
+        b"    web:\n      hosts:\n        alpha.example: {}\n        beta.example: {}\n"
+    )
     assert b"Has validation errors" in response.body
     assert b'href="?action=validate&amp;host_id=e&amp;severity=error">View validation errors</a>' in response.body
     assert response.body.count(b">View validation errors</a>") == 1
