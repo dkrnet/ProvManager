@@ -377,6 +377,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - Saving a template shall validate type, size, variables, path targets, and reference integrity without applying output.
 - `template_preview` shall render an explicit selected host/template pairing with variables and identify missing values/errors without writing target files.
 - The initial preview shall support only `{{ name }}` placeholders for allowlisted scalar values. Host values take precedence over template defaults. Escape rendered text for HTML, redact values for sensitive variable names, and enforce `MAX_TEMPLATE_BYTES` on both source and rendered text.
+- For the allowlisted name `hostname`, resolve an explicit host variable first, then the host's nonblank top-level hostname, then the template default. Readiness checks and preview shall use the same resolution order.
 - Disabled or referenced templates shall follow the same dependency and edit-conflict rules as other catalogs.
 
 ## Operations Dashboard — `action=operations`

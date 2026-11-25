@@ -302,6 +302,16 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
     return chunks
 
 
+def _template_value(name: str, host: dict, values: dict, defaults: dict) -> Any:
+    if name in values:
+        return values[name]
+    if name == "hostname":
+        hostname = host.get("hostname")
+        if isinstance(hostname, str) and hostname.strip():
+            return hostname
+    return defaults.get(name)
+
+
 def _render_template_preview(source: str, host: dict, template: dict, limit: int) -> str:
     allowed = template.get("allowed_variables", [])
     required = template.get("required_variables", [])
@@ -314,7 +324,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     allowed_names = set(allowed)
     if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
         raise ValueError("Check the template allowlist for duplicate or undeclared names.")
-    missing = sorted(name for name in required if values.get(name, defaults.get(name)) is None)
+    missing = sorted(name for name in required if _template_value(name, host, values, defaults) is None)
     if missing:
         raise ValueError("Missing required template variables: " + ", ".join(missing) + ".")
 
@@ -322,7 +332,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     remaining = limit
     for index, chunk in enumerate(chunks):
         if index % 2:
-            value = values.get(chunk, defaults.get(chunk))
+            value = _template_value(chunk, host, values, defaults)
             if value is None:
                 raise ValueError(f"Template variable {chunk} has no value.")
             if not isinstance(value, TEMPLATE_SCALAR_TYPES):
@@ -795,13 +805,13 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                     missing = sorted({
                         name for name in (*required, *template_placeholders.get(template_id, ()))
                         if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
-                        and name in allowed and variables.get(name, defaults.get(name)) is None
+                        and name in allowed and _template_value(name, host, variables, defaults) is None
                     })
                     if missing:
                         message = "Missing required template variables: " + ", ".join(missing) + "."
                         report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else template_field)
                     for name in sorted(template_placeholders.get(template_id, ())):
-                        value = variables.get(name, defaults.get(name))
+                        value = _template_value(name, host, variables, defaults)
                         if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
                             field = "variables" if name in variables else template_field
                             message = f"Template variable {name} must have a scalar value."

@@ -182,11 +182,12 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     )
     ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
     ks.write_text("# Kickstart preview", encoding="utf-8")
-    boot.write_text("# Boot preview", encoding="utf-8")
+    boot.write_text("# Boot preview for {{ hostname }}", encoding="utf-8")
     Path(config.templates_file).write_text(
         "schema_version: 1\nrecords:\n"
         f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
-        f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}'}}\n",
+        f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}', "
+        "allowed_variables: [hostname], required_variables: [hostname], variable_defaults: {hostname: fallback.example}}\n",
         encoding="utf-8",
     )
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
@@ -194,8 +195,9 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     assert b"template_id=ks\">Preview Kickstart template" in body
     assert b"template_id=boot\">Preview boot template" in body
     assert b"must select its template" not in body
-    for template_id, label in (("ks", b"Kickstart"), ("boot", b"Boot")):
-        assert b"<pre># " + label + b" preview</pre>" in _dispatch(
+    assert b"Missing required template variables" not in body
+    for template_id, expected in (("ks", b"# Kickstart preview"), ("boot", b"# Boot preview for host.example")):
+        assert b"<pre>" + expected + b"</pre>" in _dispatch(
             f"action=template_preview&host_id=host&template_id={template_id}", viewer, config,
         ).body
         assert b'<option value="host">host.example</option>' in _dispatch(

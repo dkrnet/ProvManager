@@ -29,6 +29,11 @@ Hosts may declare `inventory_groups: [web, linux]` to join Ansible groups in the
 inventory preview. Use unique, case-sensitive identifiers made of ASCII letters,
 digits, and underscores, starting with a letter or underscore. The names
 `all` and `ungrouped` are reserved.
+
+To use `{{ hostname }}` in a template, add `hostname` to its
+`allowed_variables`. The host's top-level `hostname` supplies the value
+unless the host explicitly defines `variables.hostname`. The template
+default applies when neither host value is available.
 The inventory preview can filter hosts by one assigned group. Included hosts
 retain all their group memberships in the filtered YAML.
 
