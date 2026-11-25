@@ -71,6 +71,24 @@ def test_ready_host_reports_missing_and_disabled_dependencies(tmp_path: Path) ->
     ]
 
 
+def test_staged_host_reports_direct_and_template_disabled_roles(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(Path(config.roles_file), "  - {id: base, name: Base, enabled: false}\n")
+    _catalog(Path(config.templates_file), "  - {id: setup, name: Setup, role_ids: [base]}\n")
+    _catalog(
+        Path(config.hosts_file),
+        "  - id: host-1\n"
+        "    hostname: host.example\n"
+        "    mac_addresses: ['02:00:00:00:00:01']\n"
+        "    provisioning_state: staged\n"
+        "    template_id: setup\n"
+        "    role_ids: [base]\n",
+    )
+    findings = [(item.message, item.location) for item in validate_catalogs(config) if item.resource == "host.example"]
+    assert ("A role selected by this host is disabled.", "Hosts, line 8, column 15") in findings
+    assert ("The selected template references a disabled role.", "Hosts, line 7, column 18") in findings
+
+
 def test_invalid_hosts_yaml_finding_reports_parser_location(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(

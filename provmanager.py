@@ -331,6 +331,13 @@ def _is_utc_timestamp(value: Any) -> bool:
         return False
 
 
+def _has_disabled_role(role_ids: Any, roles: Dict[str, dict]) -> bool:
+    return isinstance(role_ids, list) and any(
+        isinstance(role_id, str) and roles.get(role_id, {}).get("enabled") is False
+        for role_id in role_ids
+    )
+
+
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
@@ -438,6 +445,13 @@ def validate_catalogs(config: Config) -> List[Finding]:
             report("hosts", host, Finding("error", resource, "Role references must be an ordered list without duplicates."), "role_ids")
         elif any(role_id not in roles for role_id in role_ids):
             report("hosts", host, Finding("error", resource, "A referenced role does not exist."), "role_ids")
+        if requires_dependencies:
+            if _has_disabled_role(role_ids, roles):
+                report("hosts", host, Finding("error", resource, "A role selected by this host is disabled."), "role_ids")
+            template_id = host.get("template_id")
+            template = templates.get(template_id) if isinstance(template_id, str) else None
+            if template and _has_disabled_role(template.get("role_ids"), roles):
+                report("hosts", host, Finding("error", resource, "The selected template references a disabled role."), "template_id")
 
     for role in catalogs["roles"]:
         path = role.get("role_path")
