@@ -943,8 +943,6 @@ def _navigation(identity: Identity) -> str:
     ):
         if capability in identity.capabilities:
             links.append('<a href="?action={}">{}</a>'.format(action, label))
-    if {"preview", "hosts_read"}.issubset(identity.capabilities):
-        links.append('<a href="?action=preview">Inventory preview</a>')
     return "<nav>{}</nav>".format(" | ".join(links))
 
 

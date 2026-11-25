@@ -32,6 +32,7 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     response = _dispatch("action=hosts", viewer, config)
     assert b">Hosts</a>" in response.body
     assert b">Installers</a>" in response.body
+    assert b">Inventory preview</a>" not in response.body
     assert b">Settings</a>" not in response.body
     assert b">Audit Log</a>" not in response.body
 
