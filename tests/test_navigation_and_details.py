@@ -87,6 +87,8 @@ def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> 
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
     body = _dispatch(query, viewer, config).body
     selector = body.split(b'<select id="preview-host"', 1)[1].split(b"</select>", 1)[0]
+    assert body.index(b"Validate this template") < body.index(b"<h2>Rendered preview</h2>")
+    assert body.index(b"Validate this template") < body.index(b"<h2>Template source</h2>")
     assert b'<option value="host&amp;one">&lt;lab&gt;</option>' in selector
     assert b"unrelated" not in selector
     assert b'name="template_id" value="setup"' in body

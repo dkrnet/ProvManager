@@ -1288,11 +1288,6 @@ def dispatch(
         display_name = record.get("hostname") or record.get("name") or record["id"]
         detail = _record_detail(catalog_action, record, catalogs)
         if "preview" in identity.capabilities:
-            if catalog_action == "templates":
-                if "hosts_read" in identity.capabilities:
-                    detail += _template_preview_selector(record_id, catalogs["hosts"])
-                detail += _template_variable_reference(record)
-                detail += _template_source_preview(record, active)
             if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
                 template_id = record.get("template_id")
                 if isinstance(template_id, str) and template_id:
@@ -1312,6 +1307,11 @@ def dispatch(
                     location = f" ({finding.location})" if finding.location else ""
                     items.append("<li>{}</li>".format(html.escape(finding.message + location)))
                 detail += "<h2>Validation findings</h2><ul>{}</ul>".format("".join(items))
+            if catalog_action == "templates":
+                if "hosts_read" in identity.capabilities:
+                    detail += _template_preview_selector(record_id, catalogs["hosts"])
+                detail += _template_variable_reference(record)
+                detail += _template_source_preview(record, active)
         return _html_response(
             "{}: {}".format(singular_title, display_name),
             detail,
