@@ -103,6 +103,16 @@ def test_catalog_detail_shows_findings_for_its_catalog(tmp_path: Path, action: s
     assert body.count(b"Enabled must be true or false.") == 1
     assert b"Enabled must be true or false. (" + location + b", line 3, column" in body
     assert b"Validation findings" not in _dispatch(query, reader, config).body
+    catalog = {"installer_view": "installers", "role_view": "roles", "template_view": "templates"}[action]
+    scope = f"action=validate&catalog={catalog}&record_id=shared"
+    href = scope.replace("&", "&amp;").encode()
+    assert href in body
+    assert href in _dispatch(f"action={catalog}", viewer, config).body
+    scoped = _dispatch(scope + "&severity=error", viewer, config)
+    assert scoped.status == "200 OK"
+    assert scoped.body.count(b"Enabled must be true or false.") == 1
+    assert href in scoped.body
+    assert _dispatch(scope, replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 
 
 def test_auditor_navigation_includes_settings_and_audit(tmp_path: Path) -> None:

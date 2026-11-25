@@ -845,6 +845,12 @@ def _catalog_status_controls(action: str, params: Mapping[str, List[str]]) -> st
     )
 
 
+def _validation_scope(catalog: str, record_id: str) -> Dict[str, str]:
+    if catalog == "hosts":
+        return {"host_id": record_id}
+    return {"catalog": catalog, "record_id": record_id}
+
+
 def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config, finding_counts: Optional[Mapping[str, int]] = None) -> str:
     title, _path_field, sort_field, columns = CATALOG_ACTIONS[action]
     query = _query_value(params, "q")
@@ -900,7 +906,7 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
             if finding_counts is not None:
                 count = finding_counts.get(record["id"], 0)
                 if count:
-                    validation_query = urlencode({"action": "validate", "host_id": record["id"]})
+                    validation_query = urlencode({"action": "validate", **_validation_scope(action, record["id"])})
                     label = "1 finding" if count == 1 else f"{count} findings"
                     cells.append('<td><a href="?{}">{}</a></td>'.format(html.escape(validation_query, quote=True), label))
                 else:
@@ -1064,9 +1070,12 @@ def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], ca
         '<option value="{}"{}>{}</option>'.format(value, " selected" if selected_severity == value else "", label)
         for value, label in (("", "All severities"), ("error", "Errors"), ("warning", "Warnings"), ("information", "Information"))
     )
-    host_id = _query_value(params, "host_id")
-    scope_input = '<input type="hidden" name="host_id" value="{}">'.format(html.escape(host_id, quote=True)) if host_id else ""
-    reset_query = urlencode({"action": "validate", "host_id": host_id}) if host_id else "action=validate"
+    scope = {key: _query_value(params, key) for key in ("host_id", "catalog", "record_id") if _query_value(params, key)}
+    scope_input = "".join(
+        '<input type="hidden" name="{}" value="{}">'.format(key, html.escape(value, quote=True))
+        for key, value in scope.items()
+    )
+    reset_query = urlencode({"action": "validate", **scope})
     controls = '<form class="validation-filter" method="get"><input type="hidden" name="action" value="validate">{}<label for="severity-filter">Severity</label><select id="severity-filter" name="severity">{}</select><label for="resource-filter">Resource</label><input id="resource-filter" name="resource" value="{}"><button type="submit">Filter</button><a href="?{}">Reset</a></form>'.format(
         scope_input, options, html.escape(resource_query, quote=True), html.escape(reset_query, quote=True)
     )
@@ -1144,10 +1153,10 @@ def dispatch(
             content = "<p>{}</p>".format(html.escape(str(error)))
             return _html_response(title, content, "500 Internal Server Error", public=False, identity=identity, config=active)
         finding_counts = None
-        if action == "hosts" and "preview" in identity.capabilities:
+        if "preview" in identity.capabilities:
             finding_counts = {}
             for finding in validate_catalogs(active):
-                if finding.catalog == "hosts":
+                if finding.catalog == action:
                     finding_counts[finding.record_id] = finding_counts.get(finding.record_id, 0) + 1
         return _html_response(
             title,
@@ -1179,9 +1188,10 @@ def dispatch(
         if "preview" in identity.capabilities:
             if catalog_action == "templates":
                 detail += _template_source_preview(record, active)
-            if catalog_action == "hosts":
-                query = urlencode({"action": "validate", "host_id": record_id})
-                detail += '<p><a href="?{}">Validate this host</a></p>'.format(html.escape(query, quote=True))
+            query = urlencode({"action": "validate", **_validation_scope(catalog_action, record_id)})
+            detail += '<p><a href="?{}">Validate this {}</a></p>'.format(
+                html.escape(query, quote=True), html.escape(singular_title.lower())
+            )
             record_findings = [
                 finding for finding in validate_catalogs(active)
                 if finding.catalog == catalog_action and finding.record_id == record_id
@@ -1201,27 +1211,34 @@ def dispatch(
         )
     if action == "validate":
         host_id = _query_value(params, "host_id")
-        if host_id and "hosts_read" not in identity.capabilities:
-            return _html_response("Forbidden", "<p>You do not have permission to view hosts.</p>", "403 Forbidden", public=False, identity=identity, config=active)
-        title = "Validation"
+        scope_catalog = _query_value(params, "catalog")
+        scope_id = _query_value(params, "record_id")
         if host_id:
+            scope_catalog, scope_id = "hosts", host_id
+        if (scope_catalog or scope_id) and (scope_catalog not in CATALOG_ACTIONS or not scope_id):
+            return _html_response("Invalid request", "<p>A valid catalog and record ID are required.</p>", "400 Bad Request", public=False, identity=identity, config=active)
+        title = "Validation"
+        if scope_catalog:
+            capability = ACTION_CAPABILITIES[scope_catalog]
+            if capability not in identity.capabilities:
+                return _html_response("Forbidden", "<p>You do not have permission to view this catalog.</p>", "403 Forbidden", public=False, identity=identity, config=active)
             try:
-                hosts = load_catalog(active.hosts_file)
+                records = load_catalog(getattr(active, CATALOG_ACTIONS[scope_catalog][1]))
             except CatalogError as error:
                 return _html_response(title, "<p>{}</p>".format(html.escape(str(error))), "500 Internal Server Error", public=False, identity=identity, config=active)
-            host = next((record for record in hosts if record["id"] == host_id), None)
-            if host is None:
-                return _html_response("Not found", "<p>The requested host was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
-            title = "Validation: {}".format(host.get("hostname") or host_id)
-            catalogs = {name: [host] if name == "hosts" else [] for name in CATALOG_ACTIONS}
+            record = next((item for item in records if item["id"] == scope_id), None)
+            if record is None:
+                return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
+            title = "Validation: {}".format(record.get("hostname") or record.get("name") or scope_id)
+            catalogs = {scope_catalog: [record]}
         else:
             catalogs = _validation_catalogs(active)
         findings = validate_catalogs(active)
-        if host_id:
+        if scope_catalog:
             findings = [
                 finding for finding in findings
                 if (not finding.catalog and finding.severity == "error")
-                or (finding.catalog == "hosts" and finding.record_id == host_id)
+                or (finding.catalog == scope_catalog and finding.record_id == scope_id)
             ]
         return _html_response(
             title,
