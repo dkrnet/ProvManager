@@ -16,12 +16,21 @@ def _config(tmp_path: Path, records: str, page_size: int = 50) -> Config:
     return replace(Config(), hosts_file=str(hosts), list_page_size=page_size)
 
 
-def _request(config: Config, query: str):
+def _request(config: Config, query: str, identity: Identity = READER):
     return dispatch(
         {"QUERY_STRING": "action=hosts&" + query, "REMOTE_USER": "reader"},
         config=config,
-        identity_resolver=lambda username, active: READER,
+        identity_resolver=lambda username, active: identity,
     )
+
+
+def test_hosts_list_links_to_scoped_validation_for_authorized_reader(tmp_path: Path) -> None:
+    config = _config(tmp_path, "  - {id: a, hostname: alpha.example, mac_addresses: []}\n")
+    viewer = replace(READER, capabilities=READER.capabilities | {"preview"})
+    assert b'<th scope="col">Validation</th>' not in _request(config, "").body
+    body = _request(config, "", viewer).body
+    assert b'<th scope="col">Validation</th>' in body
+    assert b'<a href="?action=validate&amp;host_id=a">1 finding</a>' in body
 
 
 def test_search_uses_documented_host_fields_and_escapes_query(tmp_path: Path) -> None:

@@ -803,7 +803,7 @@ def _catalog_status_controls(action: str, params: Mapping[str, List[str]]) -> st
     )
 
 
-def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config) -> str:
+def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config, finding_counts: Optional[Mapping[str, int]] = None) -> str:
     title, _path_field, sort_field, columns = CATALOG_ACTIONS[action]
     query = _query_value(params, "q")
     enabled_filter = _query_value(params, "enabled").casefold()
@@ -838,9 +838,11 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
         heading_cells.append('<th scope="col"><a href="?{}">{}</a></th>'.format(
             html.escape(urlencode(heading_query), quote=True), html.escape(column.replace("_", " ").title())
         ))
+    if finding_counts is not None:
+        heading_cells.append('<th scope="col">Validation</th>')
     headings = "".join(heading_cells)
     if not page_records:
-        rows = '<tr><td colspan="{}">No {} are configured.</td></tr>'.format(len(columns), html.escape(title.lower()))
+        rows = '<tr><td colspan="{}">No {} are configured.</td></tr>'.format(len(heading_cells), html.escape(title.lower()))
     else:
         detail_action = {"hosts": "host_view", "installers": "installer_view", "roles": "role_view", "templates": "template_view"}[action]
         rendered_rows = []
@@ -853,6 +855,14 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
                         detail_action, html.escape(str(record["id"]), quote=True), value
                     )
                 cells.append("<td>{}</td>".format(value))
+            if finding_counts is not None:
+                count = finding_counts.get(record["id"], 0)
+                if count:
+                    validation_query = urlencode({"action": "validate", "host_id": record["id"]})
+                    label = "1 finding" if count == 1 else f"{count} findings"
+                    cells.append('<td><a href="?{}">{}</a></td>'.format(html.escape(validation_query, quote=True), label))
+                else:
+                    cells.append("<td>—</td>")
             rendered_rows.append("<tr>{}</tr>".format("".join(cells)))
         rows = "".join(rendered_rows)
     pagination = []
@@ -1091,9 +1101,15 @@ def dispatch(
         except CatalogError as error:
             content = "<p>{}</p>".format(html.escape(str(error)))
             return _html_response(title, content, "500 Internal Server Error", public=False, identity=identity, config=active)
+        finding_counts = None
+        if action == "hosts" and "preview" in identity.capabilities:
+            finding_counts = {}
+            for finding in validate_catalogs(active):
+                if finding.catalog == "hosts":
+                    finding_counts[finding.record_id] = finding_counts.get(finding.record_id, 0) + 1
         return _html_response(
             title,
-            _catalog_table(action, records, params, active),
+            _catalog_table(action, records, params, active, finding_counts),
             public=False,
             identity=identity,
             config=active,
