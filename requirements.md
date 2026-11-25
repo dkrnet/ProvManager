@@ -225,7 +225,7 @@ Each host record shall support:
 - IP addresses shall be validated by `ipaddress`; uniqueness conflicts among active hosts shall be rejected in a managed network unless explicitly permitted by configuration.
 - A host may be recorded without having all boot requirements configured; it shall not be considered `ready` unless its selected installer/template and required network settings pass readiness checks.
 - A change that makes a ready/staged host unprovisionable shall recalculate or invalidate its readiness and alert the user.
-- Read-only validation shall report on each ready or staged host when its selected installer or template has blocking catalog errors.
+- Read-only validation shall report on each ready or staged host when its selected installer, template, or a role referenced directly or through the selected template has blocking catalog errors.
 - Host record `provisioning_state` describes configuration/workflow status, not a claim that an OS installation succeeded unless an authorized execution record confirms it.
 - Deleting a host shall require confirmation and must check for active jobs and generated/deployed artifacts that reference it; default behavior shall disable/retire instead of irreversibly deleting operational history.
 

@@ -54,6 +54,24 @@ def test_ready_host_reports_invalid_selected_catalog_records(tmp_path: Path) -> 
     ]
 
 
+def test_staged_host_reports_invalid_direct_and_template_roles(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    missing_role = Path(config.ansible_root) / "missing"
+    content = Path(config.kickstart_root) / "setup.ks"
+    content.touch()
+    _catalog(Path(config.roles_file), f"  - {{id: base, name: Base, role_path: '{missing_role}'}}\n")
+    _catalog(Path(config.templates_file), f"  - {{id: setup, name: Setup, template_type: kickstart, content_path: '{content}', role_ids: [base]}}\n")
+    _catalog(
+        Path(config.hosts_file),
+        "  - id: host-1\n    hostname: host.example\n"
+        "    mac_addresses: ['02:00:00:00:00:01']\n"
+        "    provisioning_state: staged\n    template_id: setup\n    role_ids: [base]\n",
+    )
+    findings = [(item.message, item.location) for item in validate_catalogs(config) if item.resource == "host.example"]
+    assert ("A role selected by this host has validation errors.", "Hosts, line 8, column 15") in findings
+    assert ("The selected template references a role with validation errors.", "Hosts, line 7, column 18") in findings
+
+
 def test_ready_host_checks_required_template_values_with_host_precedence(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(Path(config.templates_file), "  - {id: t, name: Setup, allowed_variables: [site, count, flag], required_variables: [site, count, flag], variable_defaults: {site: lab, flag: false}}\n")

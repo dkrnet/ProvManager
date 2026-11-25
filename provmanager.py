@@ -552,6 +552,19 @@ def validate_catalogs(config: Config) -> List[Finding]:
         if host.get("provisioning_state") not in ("ready", "staged"):
             continue
         resource = str(host.get("hostname") or host["id"])
+        template_id = host.get("template_id")
+        template = templates.get(template_id, {}) if isinstance(template_id, str) else {}
+        for field, role_ids, message in (
+            ("role_ids", host.get("role_ids"), "A role selected by this host has validation errors."),
+            ("template_id", template.get("role_ids"), "The selected template references a role with validation errors."),
+        ):
+            if isinstance(role_ids, list) and any(
+                isinstance(role_id, str)
+                and role_id in invalid_records["roles"]
+                and roles[role_id].get("enabled", True) is not False
+                for role_id in role_ids
+            ):
+                report("hosts", host, Finding("error", resource, message), field)
         for action, index, field, label in (
             ("installers", installers, "installer_id", "installer"),
             ("templates", templates, "template_id", "template"),
