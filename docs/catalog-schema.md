@@ -23,6 +23,8 @@ Hosts may declare `inventory_groups: [web, linux]` to join Ansible groups in the
 inventory preview. Use unique, case-sensitive identifiers made of ASCII letters,
 digits, and underscores, starting with a letter or underscore. The names
 `all` and `ungrouped` are reserved.
+The inventory preview can filter hosts by one assigned group. Included hosts
+retain all their group memberships in the filtered YAML.
 
 Use `inventory_variables: {site_name: lab, managed: true}` for host variables
 in the inventory preview. Values must be plain text, numbers, or booleans.

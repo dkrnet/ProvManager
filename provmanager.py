@@ -931,10 +931,33 @@ class Response:
         return ("\r\n".join(lines) + "\r\n\r\n").encode("ascii") + self.body
 
 
-def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> str:
+def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding], selected_group: str = "") -> str:
     if any(not finding.catalog and finding.severity == "error" for finding in findings):
         return '<p>Inventory preview is unavailable because a catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>'
     invalid = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "error"}
+    available_groups = sorted({
+        name for host in hosts if isinstance(host.get("inventory_groups"), list)
+        for name in host["inventory_groups"]
+        if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name) and name not in {"all", "ungrouped"}
+    })
+    options = ['<option value="">All hosts</option>']
+    for name in available_groups:
+        escaped = html.escape(name, quote=True)
+        selected = " selected" if name == selected_group else ""
+        options.append(f'<option value="{escaped}"{selected}>{escaped}</option>')
+    controls = (
+        '<form method="get"><input type="hidden" name="action" value="preview">'
+        '<label for="inventory-group">Inventory group</label>'
+        '<select id="inventory-group" name="group">{}</select> '
+        '<button type="submit">Filter</button></form>'
+    ).format("".join(options))
+    if selected_group:
+        if selected_group not in available_groups:
+            return controls + "<p>The requested inventory group was not found.</p>"
+        hosts = [
+            host for host in hosts
+            if isinstance(host.get("inventory_groups"), list) and selected_group in host["inventory_groups"]
+        ]
     included = {}
     included_rows = []
     groups = {}
@@ -969,7 +992,7 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
     inclusions = "<ul>{}</ul>".format("".join(included_rows)) if included_rows else "<p>No hosts included.</p>"
     exclusions = "<ul>{}</ul>".format("".join(excluded)) if excluded else "<p>No hosts excluded.</p>"
     return (
-        f"<p>Read-only preview. {len(included)} included, {len(excluded)} excluded.</p>"
+        f"{controls}<p>Read-only preview. {len(included)} included, {len(excluded)} excluded.</p>"
         f"<h2>Included hosts</h2>{inclusions}"
         f"<h2>Excluded hosts</h2>{exclusions}"
         f"<h2>Inventory YAML</h2><pre>{html.escape(inventory)}</pre>"
@@ -1469,7 +1492,7 @@ def dispatch(
         host_error = next((finding for finding in findings if not finding.catalog and finding.resource == CATALOG_ACTIONS["hosts"][0] and finding.severity == "error"), None)
         if host_error:
             return _html_response(title, f"<p>{html.escape(host_error.message)}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
-        content = _inventory_preview(catalogs["hosts"], findings)
+        content = _inventory_preview(catalogs["hosts"], findings, _query_value(params, "group"))
         return _html_response(title, content, public=False, identity=identity, config=active)
     if action == "template_preview":
         title = "Rendered template preview"

@@ -84,6 +84,14 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert b"private-value" not in response.body
     assert b"hidden-value" not in response.body
     assert not Path(config.inventory_output_file).exists()
+    filtered = _dispatch("action=preview&group=linux", viewer, config).body
+    assert b'<option value="linux" selected>linux</option>' in filtered
+    assert b"1 included, 0 excluded" in filtered
+    assert b"alpha.example" in filtered and b"beta.example" not in filtered
+    disabled = _dispatch("action=preview&group=disabled_group", viewer, config).body
+    assert b"0 included, 1 excluded" in disabled
+    assert b"disabled.example</a> " in disabled
+    assert b"The requested inventory group was not found." in _dispatch("action=preview&group=unknown", viewer, config).body
     assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 
 
