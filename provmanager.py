@@ -465,6 +465,15 @@ def validate_catalogs(config: Config) -> List[Finding]:
     template_roots = {"kickstart": config.kickstart_root, "ansible": config.ansible_root, "boot": config.tftp_root}
     for template in catalogs["templates"]:
         resource = str(template.get("name") or template["id"])
+        allowed_variables = template.get("allowed_variables", [])
+        if not isinstance(allowed_variables, list) or any(
+            not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+            for name in allowed_variables
+        ):
+            message = "allowed_variables must be a list of names using letters, digits, and underscores, starting with a letter or underscore."
+            report("templates", template, Finding("error", resource, message), "allowed_variables")
+        elif len(allowed_variables) != len(set(allowed_variables)):
+            report("templates", template, Finding("error", resource, "allowed_variables contains duplicate names."), "allowed_variables")
         template_type = template.get("template_type")
         path = template.get("content_path")
         root = template_roots.get(template_type)

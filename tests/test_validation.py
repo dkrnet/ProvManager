@@ -36,6 +36,25 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_template_variable_declarations(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "setup.ks"
+    content.touch()
+    prefix = f"template_type: kickstart, content_path: '{content}'"
+    _catalog(
+        Path(config.templates_file),
+        f"  - {{id: a, name: Valid, {prefix}, allowed_variables: [site_name, disk2]}}\n"
+        f"  - {{id: b, name: Duplicate, {prefix}, allowed_variables: [site_name, site_name]}}\n"
+        f"  - {{id: c, name: Invalid, {prefix}, allowed_variables: [site.name, 42]}}\n"
+        f"  - {{id: d, name: Omitted, {prefix}}}\n",
+    )
+    duplicate, invalid = validate_catalogs(config)
+    assert duplicate.resource == "Duplicate"
+    assert "duplicate names" in duplicate.message
+    assert invalid.resource == "Invalid"
+    assert invalid.location.startswith("Templates, line 5, column ")
+
+
 def test_template_size_limit_counts_bytes_and_reports_source_location(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), max_template_bytes=4)
     content = Path(config.kickstart_root) / "example.ks"

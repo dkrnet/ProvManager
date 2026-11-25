@@ -96,3 +96,8 @@ reported by read-only validation.
 
 Template content files may be at most `MAX_TEMPLATE_BYTES` bytes (1 MiB by
 default). Oversized files are reported at the `content_path` field.
+
+Use `allowed_variables: [site_name, disk_device]` to declare user-defined
+names for a template. Names are case-sensitive and must be unique. Use ASCII
+letters, digits, and underscores, starting with a letter or underscore.
+An omitted list allows no variables. Value scopes and precedence are pending.
