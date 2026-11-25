@@ -52,7 +52,7 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     Path(config.hosts_file).write_text(
         "schema_version: 1\nrecords:\n"
         "  - {id: b, hostname: beta.example, provisioning_state: staged, inventory_groups: [web]}\n"
-        "  - {id: a, hostname: alpha.example, provisioning_state: ready, ipv4_address: 192.0.2.10, inventory_groups: [web, linux], variables: {token: private-value}}\n"
+        "  - {id: a, hostname: alpha.example, provisioning_state: ready, ipv4_address: 192.0.2.10, inventory_groups: [web, linux], inventory_variables: {site: lab, api_token: hidden-value}, variables: {token: private-value}}\n"
         "  - {id: c, hostname: disabled.example, provisioning_state: ready, enabled: false, inventory_groups: [disabled_group]}\n"
         "  - {id: d, hostname: draft.example}\n"
         "  - {id: e, hostname: invalid.example, provisioning_state: ready}\n",
@@ -68,7 +68,8 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert b"2 included, 3 excluded" in response.body
     inventory = response.body.split(b"<pre>", 1)[1].split(b"</pre>", 1)[0]
     assert inventory == (
-        b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n    beta.example: {}\n"
+        b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n"
+        b"      api_token: &#x27;[redacted]&#x27;\n      site: lab\n    beta.example: {}\n"
         b"  children:\n    linux:\n      hosts:\n        alpha.example: {}\n"
         b"    web:\n      hosts:\n        alpha.example: {}\n        beta.example: {}\n"
     )
@@ -77,6 +78,7 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert response.body.count(b">View validation errors</a>") == 1
     assert b"Provisioning state must be ready or staged" in response.body
     assert b"private-value" not in response.body
+    assert b"hidden-value" not in response.body
     assert not Path(config.inventory_output_file).exists()
     assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 

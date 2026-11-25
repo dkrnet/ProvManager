@@ -594,6 +594,21 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
             report("hosts", host, Finding("error", resource, message), "inventory_groups")
         elif len(inventory_groups) != len(set(inventory_groups)):
             report("hosts", host, Finding("error", resource, "Inventory groups must not contain duplicate names."), "inventory_groups")
+        inventory_variables = host.get("inventory_variables", {})
+        if not isinstance(inventory_variables, dict) or any(
+            not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name)
+            or name.casefold().startswith("ansible_")
+            for name in inventory_variables
+        ):
+            message = "Inventory variables must be a mapping with identifier keys. The ansible_ prefix is reserved."
+            report("hosts", host, Finding("error", resource, message), "inventory_variables")
+        elif any(
+            not isinstance(value, TEMPLATE_SCALAR_TYPES)
+            or (isinstance(value, str) and any(token in value for token in ("{{", "{%", "{#")))
+            for value in inventory_variables.values()
+        ):
+            message = "Inventory variable values must be text, numbers, or booleans. Template expressions are unsupported."
+            report("hosts", host, Finding("error", resource, message), "inventory_variables")
         variables = host.get("variables", {})
         if not isinstance(variables, dict):
             report("hosts", host, Finding("error", resource, "Host variables must be a mapping of names to values."), "variables")
@@ -937,6 +952,8 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
         else:
             address = host.get("ipv4_address") or host.get("ipv6_address")
             included[hostname] = {"ansible_host": address} if address else {}
+            for name, value in sorted(host.get("inventory_variables", {}).items()):
+                included[hostname][name] = "[redacted]" if _sensitive_key(name) else value
             for group in host.get("inventory_groups", []):
                 groups.setdefault(group, {})[hostname] = {}
             continue
@@ -1011,7 +1028,7 @@ def _display_value(value: Any, key: str = "") -> str:
     if isinstance(value, list):
         return ", ".join(_display_value(item, key) for item in value)
     if isinstance(value, dict):
-        return ", ".join("{}={}".format(item_key, _display_value(item_value, str(item_key))) for item_key, item_value in sorted(value.items()))
+        return ", ".join("{}={}".format(item_key, _display_value(item_value, str(item_key))) for item_key, item_value in sorted(value.items(), key=lambda item: str(item[0])))
     if value is None or value == "":
         return "—"
     return str(value)

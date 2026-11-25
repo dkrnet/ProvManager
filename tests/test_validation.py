@@ -48,6 +48,20 @@ def test_inventory_groups_reject_reserved_and_duplicate_names(tmp_path: Path) ->
     assert "duplicate names" in duplicate.message and duplicate.location.startswith("Hosts, line 4, column ")
 
 
+def test_inventory_variables_reject_reserved_keys_and_nonliteral_values(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.hosts_file),
+        "  - {id: a, hostname: a.example, mac_addresses: ['02:00:00:00:00:01'], inventory_variables: {ansible_host: example}}\n"
+        "  - {id: b, hostname: b.example, mac_addresses: ['02:00:00:00:00:02'], inventory_variables: {site: '{{ other }}'}}\n"
+        "  - {id: c, hostname: c.example, mac_addresses: ['02:00:00:00:00:03'], inventory_variables: {site: [lab]}}\n",
+    )
+    reserved, expression, collection = validate_catalogs(config)
+    assert "reserved" in reserved.message
+    assert "Template expressions are unsupported" in expression.message
+    assert "must be text, numbers, or booleans" in collection.message
+
+
 def test_ready_host_reports_invalid_selected_catalog_records(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(Path(config.installers_file), "  - {id: image, name: Image}\n")

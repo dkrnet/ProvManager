@@ -24,6 +24,11 @@ inventory preview. Use unique, case-sensitive identifiers made of ASCII letters,
 digits, and underscores, starting with a letter or underscore. The names
 `all` and `ungrouped` are reserved.
 
+Use `inventory_variables: {site_name: lab, managed: true}` for host variables
+in the inventory preview. Values must be plain text, numbers, or booleans.
+The `ansible_` prefix is reserved. Values for names recognized as sensitive
+are redacted in the preview.
+
 When supplied, `enabled` must be a YAML boolean. Omitted values default to
 enabled. Optional `description` fields must be text within `MAX_DESCRIPTION_CHARS`.
 When present, `created_at` and `updated_at` must be ISO 8601 timestamps in UTC.
