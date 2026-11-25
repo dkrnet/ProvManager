@@ -936,6 +936,7 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
         return '<p>Inventory preview is unavailable because a catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>'
     invalid = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "error"}
     included = {}
+    included_rows = []
     groups = {}
     excluded = []
     for host in sorted(hosts, key=lambda record: (str(record.get("hostname") or record["id"]).casefold(), record["id"])):
@@ -954,19 +955,24 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
             included[hostname] = {"ansible_host": address} if address else {}
             for name, value in sorted(host.get("inventory_variables", {}).items()):
                 included[hostname][name] = "[redacted]" if _sensitive_key(name) else value
-            for group in host.get("inventory_groups", []):
+            membership = sorted(host.get("inventory_groups", []))
+            for group in membership:
                 groups.setdefault(group, {})[hostname] = {}
+            group_label = html.escape(", ".join(membership)) if membership else "No custom groups"
+            included_rows.append(f"<li>{_record_link('hosts', host)} — {group_label}</li>")
             continue
         excluded.append(f"<li>{_record_link('hosts', host)} — {reason}{validation_link}</li>")
     all_group = {"hosts": included}
     if groups:
         all_group["children"] = {name: {"hosts": groups[name]} for name in sorted(groups)}
     inventory = yaml.safe_dump({"all": all_group}, sort_keys=False, allow_unicode=True)
+    inclusions = "<ul>{}</ul>".format("".join(included_rows)) if included_rows else "<p>No hosts included.</p>"
     exclusions = "<ul>{}</ul>".format("".join(excluded)) if excluded else "<p>No hosts excluded.</p>"
     return (
         f"<p>Read-only preview. {len(included)} included, {len(excluded)} excluded.</p>"
-        f"<h2>Inventory YAML</h2><pre>{html.escape(inventory)}</pre>"
+        f"<h2>Included hosts</h2>{inclusions}"
         f"<h2>Excluded hosts</h2>{exclusions}"
+        f"<h2>Inventory YAML</h2><pre>{html.escape(inventory)}</pre>"
     )
 
 
