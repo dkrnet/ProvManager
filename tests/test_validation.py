@@ -47,6 +47,20 @@ def test_invalid_hosts_yaml_finding_reports_parser_location(tmp_path: Path) -> N
     assert "private-value" not in finding.message
 
 
+def test_catalog_field_and_missing_field_report_source_locations(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.roles_file),
+        "  - id: base\n"
+        "    enabled: 'false'\n"
+        f"    role_path: '{config.ansible_root}'\n",
+    )
+    assert [(item.message, item.location) for item in validate_catalogs(config)] == [
+        ("A required name is missing.", "Ansible Roles, line 3, column 5"),
+        ("Enabled must be true or false.", "Ansible Roles, line 4, column 14"),
+    ]
+
+
 def test_common_catalog_field_validation(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), max_description_chars=5)
     _catalog(

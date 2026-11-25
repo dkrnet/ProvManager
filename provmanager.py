@@ -139,15 +139,31 @@ class Finding:
     severity: str
     resource: str
     message: str
+    location: str = ""
 
 
-def load_catalog(path: str) -> List[Dict[str, Any]]:
+def _yaml_fields(node):
+    if isinstance(node, yaml.MappingNode):
+        return {key.value: value for key, value in node.value if isinstance(key, yaml.ScalarNode)}
+    return {}
+
+
+def _source_position(mark):
+    return f"line {mark.line + 1}, column {mark.column + 1}"
+
+
+def load_catalog(path: str, locations: Optional[dict] = None) -> List[Dict[str, Any]]:
     """Read a version-1 catalog using PyYAML's non-constructing safe loader."""
     if yaml is None:
         raise CatalogError("YAML support is unavailable; install the documented PyYAML dependency.")
     try:
         with open(path, "r", encoding="utf-8") as stream:
-            document = yaml.safe_load(stream)
+            loader = yaml.SafeLoader(stream)
+            try:
+                node = loader.get_single_node()
+                document = loader.construct_document(node) if node is not None else None
+            finally:
+                loader.dispose()
     except FileNotFoundError:
         raise CatalogError("The catalog file is not available.")
     except OSError:
@@ -159,18 +175,35 @@ def load_catalog(path: str) -> List[Dict[str, Any]]:
         if mark is not None:
             message += f" The parser stopped at line {mark.line + 1}, column {mark.column + 1}."
         raise CatalogError(message) from None
+    def schema_error(message, source):
+        return CatalogError(f"{message} ({_source_position(source.start_mark)})" if source is not None else message)
+
     if not isinstance(document, dict):
-        raise CatalogError("The catalog must be a versioned mapping.")
+        raise schema_error("The catalog must be a versioned mapping.", node)
+    fields_by_name = _yaml_fields(node)
     if document.get("schema_version") != 1:
-        raise CatalogError("The catalog schema version is missing or unsupported.")
+        raise schema_error("The catalog schema version is missing or unsupported.", fields_by_name.get("schema_version", node))
     records = document.get("records")
+    records_node = fields_by_name.get("records")
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
-        raise CatalogError("The catalog records value must be a list of mappings.")
+        source = records_node or node
+        if isinstance(records_node, yaml.SequenceNode) and isinstance(records, list):
+            source = next(child for record, child in zip(records, records_node.value) if not isinstance(record, dict))
+        raise schema_error("The catalog records value must be a list of mappings.", source)
     identifiers = [record.get("id") for record in records]
-    if any(not isinstance(identifier, str) or not identifier for identifier in identifiers):
-        raise CatalogError("Every catalog record must have a nonempty string ID.")
-    if len(set(identifiers)) != len(identifiers):
-        raise CatalogError("The catalog contains duplicate record IDs.")
+    seen_ids = set()
+    for index, identifier in enumerate(identifiers):
+        record_node = records_node.value[index] if isinstance(records_node, yaml.SequenceNode) else None
+        source = _yaml_fields(record_node).get("id", record_node)
+        if not isinstance(identifier, str) or not identifier:
+            raise schema_error("Every catalog record must have a nonempty string ID.", source)
+        if identifier in seen_ids:
+            raise schema_error("The catalog contains duplicate record IDs.", source)
+        seen_ids.add(identifier)
+    if locations is not None and isinstance(records_node, yaml.SequenceNode):
+        for identifier, record_node in zip(identifiers, records_node.value):
+            locations[identifier] = {key: value.start_mark for key, value in _yaml_fields(record_node).items()}
+            locations[identifier][None] = record_node.start_mark
     return records
 
 
@@ -300,10 +333,20 @@ def _is_utc_timestamp(value: Any) -> bool:
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
+    locations = {}
+
+    def report(action, record, finding, field=None):
+        marks = locations[action].get(record["id"], {})
+        mark = marks.get(field) or marks.get(None)
+        if mark is not None:
+            finding = replace(finding, location=f"{CATALOG_ACTIONS[action][0]}, line {mark.line + 1}, column {mark.column + 1}")
+        findings.append(finding)
+
     findings = []
     for action, (title, path_field, _sort, _columns) in CATALOG_ACTIONS.items():
+        locations[action] = {}
         try:
-            catalogs[action] = load_catalog(getattr(config, path_field))
+            catalogs[action] = load_catalog(getattr(config, path_field), locations[action])
         except CatalogError as error:
             catalogs[action] = []
             findings.append(Finding("error", title, str(error)))
@@ -315,25 +358,25 @@ def validate_catalogs(config: Config) -> List[Finding]:
             value = record.get(name_field)
             canonical = value.strip().casefold() if isinstance(value, str) else ""
             if not canonical:
-                findings.append(Finding("error", str(record.get("id")), "A required {} is missing.".format(name_field)))
+                report(action, record, Finding("error", str(record.get("id")), "A required {} is missing.".format(name_field)), name_field)
             elif canonical in seen:
-                findings.append(Finding("error", str(record.get("id")), "The {} duplicates another record.".format(name_field)))
+                report(action, record, Finding("error", str(record.get("id")), "The {} duplicates another record.".format(name_field)), name_field)
             else:
                 seen[canonical] = record.get("id")
             resource = value if isinstance(value, str) and value else record["id"]
             description = record.get("description")
             if "description" in record and not isinstance(description, str):
-                findings.append(Finding("error", resource, "Description must be text."))
+                report(action, record, Finding("error", resource, "Description must be text."), "description")
             elif isinstance(description, str) and len(description) > config.max_description_chars:
-                findings.append(Finding("error", resource, "Description exceeds the configured character limit."))
+                report(action, record, Finding("error", resource, "Description exceeds the configured character limit."), "description")
             if not isinstance(record.get("enabled", True), bool):
-                findings.append(Finding("error", resource, "Enabled must be true or false."))
+                report(action, record, Finding("error", resource, "Enabled must be true or false."), "enabled")
             for field in ("created_at", "updated_at"):
                 if field in record and not _is_utc_timestamp(record[field]):
-                    findings.append(Finding("error", resource, f"{field} must be an ISO 8601 UTC timestamp."))
+                    report(action, record, Finding("error", resource, f"{field} must be an ISO 8601 UTC timestamp."), field)
             for field in ("created_by", "updated_by"):
                 if field in record and (not isinstance(record[field], str) or not record[field].strip()):
-                    findings.append(Finding("error", resource, f"{field} must be nonempty text."))
+                    report(action, record, Finding("error", resource, f"{field} must be nonempty text."), field)
 
     installers = {record["id"]: record for record in catalogs["installers"]}
     roles = {record["id"]: record for record in catalogs["roles"]}
@@ -343,17 +386,17 @@ def validate_catalogs(config: Config) -> List[Finding]:
     for host in catalogs["hosts"]:
         resource = str(host.get("hostname") or host["id"])
         if not _valid_hostname(host.get("hostname")):
-            findings.append(Finding("error", resource, "Hostname is not a valid DNS name."))
+            report("hosts", host, Finding("error", resource, "Hostname is not a valid DNS name."), "hostname")
         macs = host.get("mac_addresses", [])
         if not isinstance(macs, list) or not macs:
-            findings.append(Finding("error", resource, "At least one MAC address is required."))
+            report("hosts", host, Finding("error", resource, "At least one MAC address is required."), "mac_addresses")
         else:
             for mac in macs:
                 normalized = _normalize_mac(mac)
                 if normalized is None:
-                    findings.append(Finding("error", resource, "A MAC address is invalid."))
+                    report("hosts", host, Finding("error", resource, "A MAC address is invalid."), "mac_addresses")
                 elif host.get("enabled", True) and normalized in used_macs:
-                    findings.append(Finding("error", resource, "A MAC address is already used by another enabled host."))
+                    report("hosts", host, Finding("error", resource, "A MAC address is already used by another enabled host."), "mac_addresses")
                 elif host.get("enabled", True):
                     used_macs[normalized] = host["id"]
         for field in ("ipv4_address", "ipv6_address"):
@@ -363,29 +406,29 @@ def validate_catalogs(config: Config) -> List[Finding]:
             try:
                 parsed = str(ipaddress.ip_address(value))
             except ValueError:
-                findings.append(Finding("error", resource, "{} is invalid.".format(field.replace("_", " ").upper())))
+                report("hosts", host, Finding("error", resource, "{} is invalid.".format(field.replace("_", " ").upper())), field)
                 continue
             if host.get("enabled", True) and parsed in used_ips:
-                findings.append(Finding("error", resource, "An IP address is already used by another enabled host."))
+                report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), None)
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
         for field, index, label in (("installer_id", installers, "installer"), ("template_id", templates, "template")):
             reference = host.get(field)
             if reference and reference not in index:
-                findings.append(Finding("error", resource, "Referenced {} does not exist.".format(label)))
+                report("hosts", host, Finding("error", resource, "Referenced {} does not exist.".format(label)), field)
         role_ids = host.get("role_ids", [])
         if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
-            findings.append(Finding("error", resource, "Role references must be an ordered list without duplicates."))
+            report("hosts", host, Finding("error", resource, "Role references must be an ordered list without duplicates."), "role_ids")
         elif any(role_id not in roles for role_id in role_ids):
-            findings.append(Finding("error", resource, "A referenced role does not exist."))
+            report("hosts", host, Finding("error", resource, "A referenced role does not exist."), "role_ids")
 
     for role in catalogs["roles"]:
         path = role.get("role_path")
         resource = str(role.get("name") or role["id"])
         if not isinstance(path, str) or not _inside(path, config.ansible_root):
-            findings.append(Finding("error", resource, "Role path is outside the approved Ansible root."))
+            report("roles", role, Finding("error", resource, "Role path is outside the approved Ansible root."), "role_path")
         elif not os.path.isdir(path) or not os.access(path, os.R_OK):
-            findings.append(Finding("error", resource, "Role path is not a readable directory."))
+            report("roles", role, Finding("error", resource, "Role path is not a readable directory."), "role_path")
 
     template_roots = {"kickstart": config.kickstart_root, "ansible": config.ansible_root, "boot": config.tftp_root}
     for template in catalogs["templates"]:
@@ -394,25 +437,26 @@ def validate_catalogs(config: Config) -> List[Finding]:
         path = template.get("content_path")
         root = template_roots.get(template_type)
         if root is None:
-            findings.append(Finding("error", resource, "Template type is unsupported."))
+            report("templates", template, Finding("error", resource, "Template type is unsupported."), "template_type")
         elif not isinstance(path, str) or not _inside(path, root):
-            findings.append(Finding("error", resource, "Template content path is outside its approved root."))
+            report("templates", template, Finding("error", resource, "Template content path is outside its approved root."), "content_path")
         elif not os.path.isfile(path) or not os.access(path, os.R_OK):
-            findings.append(Finding("error", resource, "Template content is not a readable file."))
+            report("templates", template, Finding("error", resource, "Template content is not a readable file."), "content_path")
 
         installer_id = template.get("installer_id")
         if installer_id and installer_id not in installers:
-            findings.append(Finding("error", resource, "Referenced installer does not exist."))
+            report("templates", template, Finding("error", resource, "Referenced installer does not exist."), "installer_id")
         role_ids = template.get("role_ids", [])
         if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
-            findings.append(Finding("error", resource, "Role references must be an ordered list without duplicates."))
+            report("templates", template, Finding("error", resource, "Role references must be an ordered list without duplicates."), "role_ids")
         # REGRESSION GUARD: Duplicate references must not hide a separate
         # missing-role finding in the same stored list.
         if isinstance(role_ids, list) and any(isinstance(role_id, str) and role_id not in roles for role_id in role_ids):
-            findings.append(Finding("error", resource, "A referenced role does not exist."))
+            report("templates", template, Finding("error", resource, "A referenced role does not exist."), "role_ids")
 
     for installer in catalogs["installers"]:
-        findings.extend(_installer_readiness_findings(installer, config))
+        for finding in _installer_readiness_findings(installer, config):
+            report("installers", installer, finding)
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return findings
@@ -859,7 +903,7 @@ def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], ca
             finding.severity,
             html.escape(finding.severity.title()),
             _finding_resource(finding.resource, catalogs),
-            html.escape(finding.message),
+            html.escape(f"{finding.message} ({finding.location})" if finding.location else finding.message),
         )
         for finding in filtered
     )

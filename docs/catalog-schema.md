@@ -13,6 +13,10 @@ An empty catalog is represented by an empty `records` list. A missing file, empt
 
 The initial implementation opens catalog files for reading only. Loading or viewing a catalog does not create, normalize, rewrite, or repair it.
 
+Validation reports one-based YAML line and column numbers when available. If a
+field is missing or a finding applies to the whole record, the location points
+to the start of the record.
+
 ## Minimal examples
 
 When supplied, `enabled` must be a YAML boolean. Omitted values default to
