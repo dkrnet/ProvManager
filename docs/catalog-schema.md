@@ -102,6 +102,9 @@ names for a template. Names are case-sensitive and must be unique. Use ASCII
 letters, digits, and underscores, starting with a letter or underscore.
 An omitted list allows no variables. A template can declare fallback values
 for its allowed names with `variable_defaults: {site_name: lab}`.
+Use `required_variables: [site_name]` to declare names that must have values
+when rendering. Each name must appear in the allowlist and may appear only
+once in the required list.
 Validation checks these declarations. Value resolution during rendering is pending.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.

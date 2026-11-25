@@ -481,6 +481,20 @@ def validate_catalogs(config: Config) -> List[Finding]:
             report("templates", template, Finding("error", resource, message), "allowed_variables")
         elif len(allowed_variables) != len(set(allowed_variables)):
             report("templates", template, Finding("error", resource, "allowed_variables contains duplicate names."), "allowed_variables")
+        required_variables = template.get("required_variables", [])
+        if not isinstance(required_variables, list) or any(
+            not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name)
+            for name in required_variables
+        ):
+            message = "required_variables must be a list of valid variable names."
+            report("templates", template, Finding("error", resource, message), "required_variables")
+        else:
+            required_names = set(required_variables)
+            if len(required_names) != len(required_variables):
+                report("templates", template, Finding("error", resource, "required_variables contains duplicate names."), "required_variables")
+            if valid_allowlist and required_names - set(allowed_variables):
+                message = "Every required_variables name must be listed in allowed_variables."
+                report("templates", template, Finding("error", resource, message), "required_variables")
         defaults = template.get("variable_defaults", {})
         if not isinstance(defaults, dict):
             report("templates", template, Finding("error", resource, "variable_defaults must be a mapping of names to values."), "variable_defaults")

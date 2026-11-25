@@ -36,6 +36,25 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_required_template_variables_must_be_unique_allowlisted_names(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "setup.ks"
+    content.touch()
+    fields = f"template_type: kickstart, content_path: '{content}', allowed_variables: [site_name]"
+    _catalog(
+        Path(config.templates_file),
+        f"  - {{id: a, name: Valid, {fields}, required_variables: [site_name]}}\n"
+        f"  - {{id: b, name: Invalid, {fields}, required_variables: [other, other]}}\n"
+        f"  - {{id: c, name: Wrong shape, {fields}, required_variables: site_name}}\n",
+    )
+    duplicate, undeclared, shape = validate_catalogs(config)
+    assert "duplicate names" in duplicate.message
+    assert "listed in allowed_variables" in undeclared.message
+    assert duplicate.location == undeclared.location
+    assert undeclared.location.startswith("Templates, line 4, column ")
+    assert "must be a list" in shape.message
+
+
 def test_template_variable_declarations(tmp_path: Path) -> None:
     config = _config(tmp_path)
     content = Path(config.kickstart_root) / "setup.ks"
