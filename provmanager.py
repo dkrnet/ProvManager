@@ -31,6 +31,7 @@ PROVMANAGER_VERSION = "1.0.0"
 VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 TEMPLATE_SCALAR_TYPES = (str, int, float, bool)
 HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
+HOST_TEMPLATE_TYPES = {"template_id": None, "kickstart_template_id": "kickstart", "boot_template_id": "boot"}
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
 ROLE_CAPABILITIES = {
@@ -341,7 +342,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
 
 def _template_preview_selector(template_id: str, hosts: List[Dict[str, Any]]) -> str:
     heading = "<h2>Rendered preview</h2>"
-    associated = [host for host in hosts if host.get("template_id") == template_id]
+    associated = [host for host in hosts if any(host.get(field) == template_id for field in HOST_TEMPLATE_TYPES)]
     if not associated:
         return heading + "<p>No hosts select this template.</p>"
     options = "".join(
@@ -650,15 +651,23 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
         requires_dependencies = host.get("provisioning_state") in ("ready", "staged")
-        for field, index, label in (("installer_id", installers, "installer"), ("template_id", templates, "template")):
+        has_typed_template = any(host.get(field) not in (None, "") for field in HOST_TEMPLATE_TYPES if field != "template_id")
+        if has_typed_template and host.get("template_id") not in (None, ""):
+            report("hosts", host, Finding("error", resource, "Use template_id or the typed template references, not both."), "template_id")
+        for field, index, label in (
+            ("installer_id", installers, "installer"),
+            *((field, templates, f"{kind} template" if kind else "template") for field, kind in HOST_TEMPLATE_TYPES.items()),
+        ):
             reference = host.get(field)
             if reference is None or reference == "":
-                if requires_dependencies:
+                if requires_dependencies and (field == "installer_id" or (field == "template_id" and not has_typed_template)):
                     report("hosts", host, Finding("error", resource, f"A ready or staged host must select its {label}."), field)
             elif not isinstance(reference, str):
                 report("hosts", host, Finding("error", resource, f"The {label} reference must be a record ID string."), field)
             elif reference not in index:
                 report("hosts", host, Finding("error", resource, "Referenced {} does not exist.".format(label)), field)
+            elif HOST_TEMPLATE_TYPES.get(field) and index[reference].get("template_type") != HOST_TEMPLATE_TYPES[field]:
+                report("hosts", host, Finding("error", resource, f"Referenced {label} must have template_type: {HOST_TEMPLATE_TYPES[field]}."), field)
             elif requires_dependencies and index[reference].get("enabled", True) is False:
                 report("hosts", host, Finding("error", resource, f"Referenced {label} is disabled."), field)
         role_ids = host.get("role_ids", [])
@@ -669,10 +678,11 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
         if requires_dependencies:
             if _has_disabled_role(role_ids, roles):
                 report("hosts", host, Finding("error", resource, "A role selected by this host is disabled."), "role_ids")
-            template_id = host.get("template_id")
-            template = templates.get(template_id) if isinstance(template_id, str) else None
-            if template and _has_disabled_role(template.get("role_ids"), roles):
-                report("hosts", host, Finding("error", resource, "The selected template references a disabled role."), "template_id")
+            for field in HOST_TEMPLATE_TYPES:
+                template_id = host.get(field)
+                template = templates.get(template_id) if isinstance(template_id, str) else None
+                if template and _has_disabled_role(template.get("role_ids"), roles):
+                    report("hosts", host, Finding("error", resource, "The selected template references a disabled role."), field)
 
     for role in catalogs["roles"]:
         path = role.get("role_path")
@@ -771,31 +781,34 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
         if host.get("provisioning_state") not in ("ready", "staged"):
             continue
         resource = str(host.get("hostname") or host["id"])
-        template_id = host.get("template_id")
-        template = templates.get(template_id, {}) if isinstance(template_id, str) else {}
         variables = host.get("variables", {})
-        if template:
-            required = template.get("required_variables", [])
-            allowed = template.get("allowed_variables", [])
-            defaults = template.get("variable_defaults", {})
-            if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
-                missing = sorted({
-                    name for name in (*required, *template_placeholders.get(template_id, ()))
-                    if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
-                    and name in allowed and variables.get(name, defaults.get(name)) is None
-                })
-                if missing:
-                    message = "Missing required template variables: " + ", ".join(missing) + "."
-                    report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else "template_id")
-                for name in sorted(template_placeholders.get(template_id, ())):
-                    value = variables.get(name, defaults.get(name))
-                    if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
-                        field = "variables" if name in variables else "template_id"
-                        message = f"Template variable {name} must have a scalar value."
-                        report("hosts", host, Finding("error", resource, message), field)
+        template_roles = []
+        for template_field in HOST_TEMPLATE_TYPES:
+            template_id = host.get(template_field)
+            template = templates.get(template_id, {}) if isinstance(template_id, str) else {}
+            if template:
+                template_roles.append((template_field, template.get("role_ids"), "The selected template references a role with validation errors."))
+                required = template.get("required_variables", [])
+                allowed = template.get("allowed_variables", [])
+                defaults = template.get("variable_defaults", {})
+                if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
+                    missing = sorted({
+                        name for name in (*required, *template_placeholders.get(template_id, ()))
+                        if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
+                        and name in allowed and variables.get(name, defaults.get(name)) is None
+                    })
+                    if missing:
+                        message = "Missing required template variables: " + ", ".join(missing) + "."
+                        report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else template_field)
+                    for name in sorted(template_placeholders.get(template_id, ())):
+                        value = variables.get(name, defaults.get(name))
+                        if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
+                            field = "variables" if name in variables else template_field
+                            message = f"Template variable {name} must have a scalar value."
+                            report("hosts", host, Finding("error", resource, message), field)
         for field, role_ids, message in (
             ("role_ids", host.get("role_ids"), "A role selected by this host has validation errors."),
-            ("template_id", template.get("role_ids"), "The selected template references a role with validation errors."),
+            *template_roles,
         ):
             if isinstance(role_ids, list) and any(
                 isinstance(role_id, str)
@@ -806,7 +819,7 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 report("hosts", host, Finding("error", resource, message), field)
         for action, index, field, label in (
             ("installers", installers, "installer_id", "installer"),
-            ("templates", templates, "template_id", "template"),
+            *(("templates", templates, field, kind + " template" if kind else "template") for field, kind in HOST_TEMPLATE_TYPES.items()),
         ):
             reference = host.get(field)
             if (
@@ -1225,7 +1238,7 @@ def _record_link(action: str, record: Dict[str, Any]) -> str:
 
 
 def _reference_value(key: str, value: Any, catalogs: Mapping[str, List[Dict[str, Any]]]) -> Optional[str]:
-    reference_types = {"installer_id": "installers", "template_id": "templates"}
+    reference_types = {"installer_id": "installers", **dict.fromkeys(HOST_TEMPLATE_TYPES, "templates")}
     if key in reference_types and isinstance(value, str):
         action = reference_types[key]
         target = next((record for record in catalogs[action] if record["id"] == value), None)
@@ -1250,7 +1263,7 @@ def _dependency_section(catalog_action: str, record: Dict[str, Any], catalogs: M
         dependencies.extend(("hosts", item) for item in catalogs["hosts"] if record_id in item.get("role_ids", []))
         dependencies.extend(("templates", item) for item in catalogs["templates"] if record_id in item.get("role_ids", []))
     elif catalog_action == "templates":
-        dependencies.extend(("hosts", item) for item in catalogs["hosts"] if item.get("template_id") == record_id)
+        dependencies.extend(("hosts", item) for item in catalogs["hosts"] if any(item.get(field) == record_id for field in HOST_TEMPLATE_TYPES))
     if catalog_action == "hosts":
         return ""
     if not dependencies:
@@ -1473,10 +1486,12 @@ def dispatch(
         detail = _record_detail(catalog_action, record, catalogs)
         if can_validate:
             if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
-                template_id = record.get("template_id")
-                if isinstance(template_id, str) and template_id:
-                    preview_query = urlencode({"action": "template_preview", "host_id": record_id, "template_id": template_id})
-                    detail += '<p><a href="?{}">Preview selected template</a></p>'.format(html.escape(preview_query, quote=True))
+                for field, kind in HOST_TEMPLATE_TYPES.items():
+                    template_id = record.get(field)
+                    if isinstance(template_id, str) and template_id:
+                        preview_query = urlencode({"action": "template_preview", "host_id": record_id, "template_id": template_id})
+                        label = {"kickstart": "Kickstart", "boot": "boot"}.get(kind, "selected")
+                        detail += '<p><a href="?{}">Preview {} template</a></p>'.format(html.escape(preview_query, quote=True), label)
             query = urlencode({"action": "validate", **_validation_scope(catalog_action, record_id)})
             detail += '<p><a href="?{}">Validate this {}</a></p>'.format(
                 html.escape(query, quote=True), html.escape(singular_title.lower())

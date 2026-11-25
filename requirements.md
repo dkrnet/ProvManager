@@ -212,7 +212,8 @@ Each host record shall support:
 | `ipv6_address` | Optional valid IPv6 address |
 | `network` | Optional network/subnet identifier or network metadata |
 | `installer_id` | Optional reference to an installer |
-| `template_id` | Optional reference to a provisioning template |
+| `template_id` | Legacy single-template reference. Use alone. |
+| `kickstart_template_id`, `boot_template_id` | Optional independent references to templates of type `kickstart` and `boot`, respectively |
 | `role_ids` | Ordered, deduplicated references to Ansible roles |
 | `enabled` | Whether included in active provisioning output |
 | `provisioning_state` | `unconfigured`, `ready`, `staged`, `provisioning`, `completed`, `failed`, or `disabled` |
@@ -270,7 +271,7 @@ Each template record shall support `id`, `name`, `description`, `template_type`,
 
 ## Relationships and Integrity
 
-- Hosts may reference one installer, one provisioning template, and multiple roles. Templates may reference an installer and multiple roles.
+- Hosts may reference one installer, one legacy template or one template of each supported typed reference, and multiple roles. A ready or staged host must select at least one template. Validate each selected template and its dependencies independently. Templates may reference an installer and multiple roles.
 - Record detail pages shall display inbound and outbound dependencies with links where authorized.
 - Deletion or disabling of a referenced installer, role, or template shall warn about impacted hosts and block generation for those hosts until fixed.
 - On every mutation, validate the full set of changed records and their relationships before persisting.

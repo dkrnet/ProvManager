@@ -19,6 +19,12 @@ to the start of the record.
 
 ## Minimal examples
 
+To assign both a Kickstart and a boot template to a host, use
+`kickstart_template_id: rocky-ks` and `boot_template_id: rocky-boot`.
+Each ID must refer to a template with the matching `template_type`.
+Host Detail offers a separate preview link for each. Existing records may
+keep `template_id` on its own. Remove it when using the typed references.
+
 Hosts may declare `inventory_groups: [web, linux]` to join Ansible groups in the
 inventory preview. Use unique, case-sensitive identifiers made of ASCII letters,
 digits, and underscores, starting with a letter or underscore. The names

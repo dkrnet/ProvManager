@@ -173,6 +173,41 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     assert b"No validation findings match" in _dispatch(scoped, viewer, config).body
 
 
+def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), kickstart_root=str(tmp_path), tftp_root=str(tmp_path))
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords: [{id: host, hostname: host.example, provisioning_state: ready, "
+        "mac_addresses: ['02:00:00:00:00:01'], kickstart_template_id: ks, boot_template_id: boot}]\n",
+        encoding="utf-8",
+    )
+    ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
+    ks.write_text("# Kickstart preview", encoding="utf-8")
+    boot.write_text("# Boot preview", encoding="utf-8")
+    Path(config.templates_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
+        f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}'}}\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
+    body = _dispatch("action=host_view&id=host", viewer, config).body
+    assert b"template_id=ks\">Preview Kickstart template" in body
+    assert b"template_id=boot\">Preview boot template" in body
+    assert b"must select its template" not in body
+    for template_id, label in (("ks", b"Kickstart"), ("boot", b"Boot")):
+        assert b"<pre># " + label + b" preview</pre>" in _dispatch(
+            f"action=template_preview&host_id=host&template_id={template_id}", viewer, config,
+        ).body
+        assert b'<option value="host">host.example</option>' in _dispatch(
+            f"action=template_view&id={template_id}", viewer, config,
+        ).body
+    hosts = Path(config.hosts_file)
+    hosts.write_text(hosts.read_text(encoding="utf-8").replace("boot_template_id: boot", "boot_template_id: ks"), encoding="utf-8")
+    assert b"Referenced boot template must have template_type: boot." in _dispatch(
+        "action=validate&host_id=host", viewer, config,
+    ).body
+
+
 def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.templates_file).write_text(
