@@ -17,6 +17,8 @@ The initial implementation opens catalog files for reading only. Loading or view
 
 When supplied, `enabled` must be a YAML boolean. Omitted values default to
 enabled. Optional `description` fields must be text within `MAX_DESCRIPTION_CHARS`.
+When present, `created_at` and `updated_at` must be ISO 8601 timestamps in UTC.
+`created_by` and `updated_by` must be nonempty text when present.
 
 ```yaml
 schema_version: 1

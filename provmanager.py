@@ -9,6 +9,7 @@ import os
 import pwd
 import re
 from dataclasses import dataclass, fields, replace
+from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Tuple
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -287,6 +288,15 @@ def _installer_readiness_findings(installer: Dict[str, Any], config: Config) -> 
     return findings
 
 
+def _is_utc_timestamp(value: Any) -> bool:
+    try:
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value[:-1] + "+00:00" if value.endswith("Z") else value)
+        return isinstance(value, datetime) and value.utcoffset() == timedelta(0)
+    except (ValueError, OverflowError):
+        return False
+
+
 def validate_catalogs(config: Config) -> List[Finding]:
     """Inspect canonical catalogs and referenced paths without modifying them."""
     catalogs = {}
@@ -303,7 +313,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
         name_field = "hostname" if action == "hosts" else "name"
         for record in records:
             value = record.get(name_field)
-            canonical = value.casefold() if isinstance(value, str) else ""
+            canonical = value.strip().casefold() if isinstance(value, str) else ""
             if not canonical:
                 findings.append(Finding("error", str(record.get("id")), "A required {} is missing.".format(name_field)))
             elif canonical in seen:
@@ -318,6 +328,12 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 findings.append(Finding("error", resource, "Description exceeds the configured character limit."))
             if not isinstance(record.get("enabled", True), bool):
                 findings.append(Finding("error", resource, "Enabled must be true or false."))
+            for field in ("created_at", "updated_at"):
+                if field in record and not _is_utc_timestamp(record[field]):
+                    findings.append(Finding("error", resource, f"{field} must be an ISO 8601 UTC timestamp."))
+            for field in ("created_by", "updated_by"):
+                if field in record and (not isinstance(record[field], str) or not record[field].strip()):
+                    findings.append(Finding("error", resource, f"{field} must be nonempty text."))
 
     installers = {record["id"]: record for record in catalogs["installers"]}
     roles = {record["id"]: record for record in catalogs["roles"]}

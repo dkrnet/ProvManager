@@ -62,6 +62,20 @@ def test_common_catalog_field_validation(tmp_path: Path) -> None:
     ]
 
 
+def test_common_catalog_metadata_validation(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.roles_file),
+        f"  - {{id: a, name: Valid, role_path: '{config.ansible_root}', "
+        "created_at: 2026-01-01T12:00:00Z, updated_at: '2026-01-01T13:00:00+00:00', created_by: admin}\n"
+        f"  - {{id: b, name: Invalid, role_path: '{config.ansible_root}', "
+        "created_at: 2026-01-01, updated_at: '2026-01-01T13:00:00+01:00', created_by: ' ', updated_by: []}\n",
+    )
+    assert [(item.resource, item.message.split()[0]) for item in validate_catalogs(config)] == [
+        ("Invalid", field) for field in ("created_at", "updated_at", "created_by", "updated_by")
+    ]
+
+
 def test_host_validation_reports_invalid_fields_and_references(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(

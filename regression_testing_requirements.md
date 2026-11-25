@@ -226,6 +226,7 @@ Ensure group enumeration covers a user's primary group and supplementary members
 # 11. YAML Schemas, Identity, and Relationships
 
 - Verify shared catalog validation rejects non-boolean enabled values, non-text descriptions, and descriptions exceeding the configured limit.
+- Verify shared catalog validation reports invalid UTC timestamps and blank or non-text creator/editor values when present.
 
 - Verify every catalog's required schema version, structure, stable IDs, unique canonical names, UTC timestamps, creator, and last-editor metadata.
 - Reject invalid YAML, unsupported/ambiguous versions, duplicate IDs/names, missing required fields, invalid references, and unsafe object constructors before any write.
