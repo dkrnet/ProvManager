@@ -764,6 +764,9 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
     for installer in catalogs["installers"]:
         for finding in _installer_readiness_findings(installer, config):
             report("installers", installer, finding)
+    dependency_warnings = {
+        (finding.catalog, finding.record_id) for finding in findings if finding.severity == "warning"
+    }
     for host in catalogs["hosts"]:
         if host.get("provisioning_state") not in ("ready", "staged"):
             continue
@@ -812,6 +815,12 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 and index[reference].get("enabled", True) is not False
             ):
                 report("hosts", host, Finding("error", resource, f"The selected {label} has validation errors."), field)
+            elif (
+                isinstance(reference, str)
+                and (action, reference) in dependency_warnings
+                and index[reference].get("enabled", True) is not False
+            ):
+                report("hosts", host, Finding("warning", resource, f"The selected {label} has validation warnings."), field)
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return catalogs, findings
@@ -935,6 +944,7 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding], sel
     if any(not finding.catalog and finding.severity == "error" for finding in findings):
         return '<p>Inventory preview is unavailable because a catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>'
     invalid = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "error"}
+    warned = {finding.record_id for finding in findings if finding.catalog == "hosts" and finding.severity == "warning"}
     available_groups = sorted({
         name for host in hosts if isinstance(host.get("inventory_groups"), list)
         for name in host["inventory_groups"]
@@ -982,7 +992,11 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding], sel
             for group in membership:
                 groups.setdefault(group, {})[hostname] = {}
             group_label = html.escape(", ".join(membership)) if membership else "No custom groups"
-            included_rows.append(f"<li>{_record_link('hosts', host)} — {group_label}</li>")
+            warning_link = ""
+            if host["id"] in warned:
+                query = urlencode({"action": "validate", **_validation_scope("hosts", host["id"]), "severity": "warning"})
+                warning_link = ' (<a href="?{}">View validation warnings</a>)'.format(html.escape(query, quote=True))
+            included_rows.append(f"<li>{_record_link('hosts', host)} — {group_label}{warning_link}</li>")
             continue
         excluded.append(f"<li>{_record_link('hosts', host)} — {reason}{validation_link}</li>")
     all_group = {"hosts": included}

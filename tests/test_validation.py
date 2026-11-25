@@ -442,6 +442,22 @@ def test_disabled_host_does_not_reserve_network_identifiers(tmp_path: Path) -> N
     assert "An IP address is already used by another enabled host." not in messages
 
 
+def test_ready_host_inherits_nonblocking_installer_warning(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    tftp = Path(config.tftp_root)
+    for filename in ("kernel", "initrd", "boot.efi"):
+        (tftp / filename).touch()
+    _catalog(
+        Path(config.installers_file),
+        f"  - {{id: image, name: Image, source_type: tree, source_path: '{tmp_path}', "
+        "architecture: x86_64, boot_modes: [uefi], kernel_path: kernel, initrd_path: initrd, efi_path: boot.efi}\n",
+    )
+    _catalog(Path(config.hosts_file), "  - {id: h, hostname: host.example, provisioning_state: ready, installer_id: image}\n")
+    warnings = [item for item in validate_catalogs(config) if item.severity == "warning"]
+    assert [(item.catalog, item.record_id) for item in warnings] == [("installers", "image"), ("hosts", "h")]
+    assert warnings[1].message == "The selected installer has validation warnings."
+
+
 def test_installer_path_inside_configured_root_has_no_allowlist_finding(tmp_path: Path) -> None:
     config = _config(tmp_path)
     root = tmp_path / "installers"

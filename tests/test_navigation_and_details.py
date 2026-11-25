@@ -60,7 +60,10 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     )
     monkeypatch.setattr("provmanager._validated_catalog_snapshot", lambda config: (
         {"hosts": load_catalog(config.hosts_file)},
-        [Finding("error", "invalid.example", "Invalid host", catalog="hosts", record_id="e")],
+        [
+            Finding("error", "invalid.example", "Invalid host", catalog="hosts", record_id="e"),
+            Finding("warning", "alpha.example", "Installer warning", catalog="hosts", record_id="a"),
+        ],
     ))
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
     response = _dispatch("action=preview", viewer, config)
@@ -69,6 +72,7 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     included_hosts = response.body.split(b"<h2>Included hosts</h2>", 1)[1].split(b"<h2>Excluded hosts</h2>", 1)[0]
     assert b'<a href="?action=host_view&amp;id=a">alpha.example</a>' in included_hosts
     assert b"linux, web" in included_hosts
+    assert b'href="?action=validate&amp;host_id=a&amp;severity=warning">View validation warnings</a>' in included_hosts
     assert b"disabled.example" not in included_hosts
     inventory = response.body.split(b"<pre>", 1)[1].split(b"</pre>", 1)[0]
     assert inventory == (
