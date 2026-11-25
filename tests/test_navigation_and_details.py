@@ -77,8 +77,13 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 
 
-def test_inventory_preview_reads_each_catalog_once(tmp_path: Path, monkeypatch) -> None:
+@pytest.mark.parametrize("query", ["action=preview", "action=validate", "action=validate&host_id=only"])
+def test_preview_and_validation_read_each_catalog_once(tmp_path: Path, monkeypatch, query: str) -> None:
     config = _config(tmp_path)
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords: [{id: only, hostname: only.example, mac_addresses: ['02:00:00:00:00:01']}]\n",
+        encoding="utf-8",
+    )
     reads = []
 
     def track_load(path, locations=None):
@@ -87,9 +92,8 @@ def test_inventory_preview_reads_each_catalog_once(tmp_path: Path, monkeypatch) 
 
     monkeypatch.setattr("provmanager.load_catalog", track_load)
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
-    response = _dispatch("action=preview", viewer, config)
+    response = _dispatch(query, viewer, config)
     assert response.status == "200 OK"
-    assert b"0 included, 0 excluded" in response.body
     assert reads == [config.hosts_file, config.installers_file, config.roles_file, config.templates_file]
 
 

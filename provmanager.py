@@ -1235,16 +1235,6 @@ fenced code block
     )
 
 
-def _validation_catalogs(config: Config) -> Dict[str, List[Dict[str, Any]]]:
-    catalogs = {}
-    for action, definition in CATALOG_ACTIONS.items():
-        try:
-            catalogs[action] = load_catalog(getattr(config, definition[1]))
-        except CatalogError:
-            catalogs[action] = []
-    return catalogs
-
-
 def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
     resource_links = {
         (action, record["id"]): _record_link(action, record)
@@ -1464,19 +1454,20 @@ def dispatch(
             capability = ACTION_CAPABILITIES[scope_catalog]
             if capability not in identity.capabilities:
                 return _html_response("Forbidden", "<p>You do not have permission to view this catalog.</p>", "403 Forbidden", public=False, identity=identity, config=active)
-            try:
-                records = load_catalog(getattr(active, CATALOG_ACTIONS[scope_catalog][1]))
-            except CatalogError as error:
-                return _html_response(title, "<p>{}</p>".format(html.escape(str(error))), "500 Internal Server Error", public=False, identity=identity, config=active)
-            record = next((item for item in records if item["id"] == scope_id), None)
+        catalogs, findings = _validated_catalog_snapshot(active)
+        if scope_catalog:
+            catalog_title = CATALOG_ACTIONS[scope_catalog][0]
+            catalog_error = next(
+                (finding for finding in findings if not finding.catalog and finding.resource == catalog_title and finding.severity == "error"),
+                None,
+            )
+            if catalog_error:
+                return _html_response(title, f"<p>{html.escape(catalog_error.message)}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
+            record = next((item for item in catalogs[scope_catalog] if item["id"] == scope_id), None)
             if record is None:
                 return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
             title = "Validation: {}".format(record.get("hostname") or record.get("name") or scope_id)
             catalogs = {scope_catalog: [record]}
-        else:
-            catalogs = _validation_catalogs(active)
-        findings = validate_catalogs(active)
-        if scope_catalog:
             findings = [
                 finding for finding in findings
                 if (not finding.catalog and finding.severity == "error")
