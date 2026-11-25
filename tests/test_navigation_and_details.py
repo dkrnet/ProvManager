@@ -233,6 +233,7 @@ def test_host_detail_shows_only_its_findings_to_validation_users(tmp_path: Path)
     assert b"Validation findings" in response.body
     assert b'action=validate&amp;host_id=first' in response.body
     assert b"Provisioning state must be one of" in response.body
+    assert b'<span class="severity severity-error">Error</span> Provisioning state' in response.body
     assert b"Hosts, line 3, column" in response.body
     assert b"At least one MAC address is required" not in response.body
     reader = replace(viewer, capabilities=frozenset({"hosts_read"}))

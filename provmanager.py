@@ -1311,6 +1311,12 @@ fenced code block
     )
 
 
+def _severity_badge(severity: str) -> str:
+    return '<span class="severity severity-{}">{}</span>'.format(
+        html.escape(severity, quote=True), html.escape(severity.title())
+    )
+
+
 def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
     resource_links = {
         (action, record["id"]): _record_link(action, record)
@@ -1343,9 +1349,8 @@ def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], ca
         scope_input, options, html.escape(resource_query, quote=True), html.escape(reset_query, quote=True)
     )
     rows = "".join(
-        '<tr><td><span class="severity severity-{}">{}</span></td><td>{}</td><td>{}</td></tr>'.format(
-            finding.severity,
-            html.escape(finding.severity.title()),
+        '<tr><td>{}</td><td>{}</td><td>{}</td></tr>'.format(
+            _severity_badge(finding.severity),
             resource_links.get((finding.catalog, finding.record_id), html.escape(finding.resource)),
             html.escape(f"{finding.message} ({finding.location})" if finding.location else finding.message),
         )
@@ -1484,7 +1489,7 @@ def dispatch(
                 items = []
                 for finding in record_findings:
                     location = f" ({finding.location})" if finding.location else ""
-                    items.append("<li>{}</li>".format(html.escape(finding.message + location)))
+                    items.append("<li>{} {}</li>".format(_severity_badge(finding.severity), html.escape(finding.message + location)))
                 detail += "<h2>Validation findings</h2><ul>{}</ul>".format("".join(items))
             if catalog_action == "templates":
                 if "hosts_read" in identity.capabilities:
