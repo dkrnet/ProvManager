@@ -54,6 +54,23 @@ def test_host_state_and_ip_family_findings_point_to_fields(tmp_path: Path) -> No
     assert ipv6.message == "IPV6 ADDRESS is invalid."
 
 
+def test_ready_host_reports_missing_and_disabled_dependencies(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(Path(config.installers_file), "  - {id: image, name: Image, enabled: false}\n")
+    _catalog(
+        Path(config.hosts_file),
+        "  - id: host-1\n"
+        "    hostname: host.example\n"
+        "    mac_addresses: ['02:00:00:00:00:01']\n"
+        "    provisioning_state: ready\n"
+        "    installer_id: image\n",
+    )
+    assert [(item.message, item.location) for item in validate_catalogs(config) if item.resource == "host.example"] == [
+        ("Referenced installer is disabled.", "Hosts, line 7, column 19"),
+        ("A ready or staged host must select its template.", "Hosts, line 3, column 5"),
+    ]
+
+
 def test_invalid_hosts_yaml_finding_reports_parser_location(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(

@@ -421,10 +421,18 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), field)
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
+        requires_dependencies = host.get("provisioning_state") in ("ready", "staged")
         for field, index, label in (("installer_id", installers, "installer"), ("template_id", templates, "template")):
             reference = host.get(field)
-            if reference and reference not in index:
+            if reference is None or reference == "":
+                if requires_dependencies:
+                    report("hosts", host, Finding("error", resource, f"A ready or staged host must select its {label}."), field)
+            elif not isinstance(reference, str):
+                report("hosts", host, Finding("error", resource, f"The {label} reference must be a record ID string."), field)
+            elif reference not in index:
                 report("hosts", host, Finding("error", resource, "Referenced {} does not exist.".format(label)), field)
+            elif requires_dependencies and index[reference].get("enabled", True) is False:
+                report("hosts", host, Finding("error", resource, f"Referenced {label} is disabled."), field)
         role_ids = host.get("role_ids", [])
         if not isinstance(role_ids, list) or any(not isinstance(role_id, str) for role_id in role_ids) or len(role_ids) != len(set(role_ids)):
             report("hosts", host, Finding("error", resource, "Role references must be an ordered list without duplicates."), "role_ids")
