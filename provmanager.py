@@ -693,6 +693,15 @@ def validate_catalogs(config: Config) -> List[Finding]:
             elif metadata.st_size > config.max_template_bytes:
                 message = f"Template content exceeds MAX_TEMPLATE_BYTES ({config.max_template_bytes} bytes)."
                 report("templates", template, Finding("error", resource, message), "content_path")
+            elif valid_allowlist:
+                source = _read_template_source(template, config)
+                if source is None:
+                    report("templates", template, Finding("error", resource, "Template source could not be read as UTF-8 within the size limit."), "content_path")
+                else:
+                    try:
+                        _checked_template_chunks(source, set(allowed_variables))
+                    except ValueError as error:
+                        report("templates", template, Finding("error", resource, str(error)), "content_path")
 
         installer_id = template.get("installer_id")
         if installer_id and installer_id not in installers:
@@ -1387,17 +1396,6 @@ def dispatch(
                 if (not finding.catalog and finding.severity == "error")
                 or (finding.catalog == scope_catalog and finding.record_id == scope_id)
             ]
-        if scope_catalog == "templates":
-            allowed = record.get("allowed_variables", [])
-            if isinstance(allowed, list) and all(isinstance(name, str) for name in allowed):
-                source = _read_template_source(record, active)
-                try:
-                    if source is None:
-                        raise ValueError("Template source could not be checked. Verify the path, readability, UTF-8 encoding, and size.")
-                    _checked_template_chunks(source, set(allowed))
-                except ValueError as error:
-                    resource = str(record.get("name") or scope_id)
-                    findings.append(Finding("error", resource, str(error), catalog=scope_catalog, record_id=scope_id))
         return _html_response(
             title,
             _findings_table(findings, params, catalogs),

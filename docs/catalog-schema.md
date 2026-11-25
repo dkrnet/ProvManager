@@ -112,7 +112,8 @@ as values. Host Detail links to a read-only rendered preview using the same
 precedence. Use `{{ name }}` for allowlisted scalar values. The preview supports
 plain substitution and redacts values for names recognized as sensitive.
 Both the source and rendered text are subject to `MAX_TEMPLATE_BYTES`.
-**Validate this template** checks source placeholders without selecting a host
-and reports the first unsupported or undeclared placeholder with its source line.
+Catalog validation checks source placeholders without selecting a host. A
+source finding includes the first unsupported or undeclared placeholder's
+source line and the YAML location of the template's `content_path`.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.

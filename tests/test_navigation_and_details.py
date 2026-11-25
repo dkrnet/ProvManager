@@ -75,6 +75,8 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     scoped = "action=validate&catalog=templates&record_id=setup"
     source.write_text("# template\n{{ missing }}", encoding="utf-8")
     assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch(scoped, viewer, config).body
+    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch("action=validate", viewer, config).body
+    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch("action=template_view&id=setup", viewer, config).body
     source.write_text("# template\n{% unsupported %}", encoding="utf-8")
     assert b"Unsupported template syntax at source line 2." in _dispatch(scoped, viewer, config).body
     source.write_text("{{ site }}", encoding="utf-8")
