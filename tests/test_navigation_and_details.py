@@ -36,6 +36,30 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     assert b">Audit Log</a>" not in response.body
 
 
+def test_template_detail_source_preview_is_bounded_escaped_and_authorized(tmp_path: Path) -> None:
+    root = tmp_path / "kickstart"
+    root.mkdir()
+    source = root / "setup.ks"
+    source.write_text("<script>sample</script>", encoding="utf-8")
+    config = replace(_config(tmp_path), kickstart_root=str(root))
+    Path(config.templates_file).write_text(
+        f"schema_version: 1\nrecords:\n  - {{id: setup, name: Setup, template_type: kickstart, content_path: '{source}'}}\n",
+        encoding="utf-8",
+    )
+    query = "action=template_view&id=setup"
+    reader = Identity("reader", "Reader", frozenset(), frozenset({"catalogs_read"}))
+    viewer = replace(reader, capabilities=reader.capabilities | {"preview"})
+    assert b"Template source" not in _dispatch(query, reader, config).body
+    assert b"<pre>&lt;script&gt;sample&lt;/script&gt;</pre>" in _dispatch(query, viewer, config).body
+    assert b"Template source is unavailable" in _dispatch(query, viewer, replace(config, max_template_bytes=2)).body
+    outside = tmp_path / "outside.ks"
+    source.rename(outside)
+    source.symlink_to(outside)
+    body = _dispatch(query, viewer, config).body
+    assert b"Template source is unavailable" in body
+    assert b"sample" not in body
+
+
 def test_host_detail_shows_only_its_findings_to_validation_users(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(

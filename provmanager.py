@@ -212,6 +212,49 @@ def load_catalog(path: str, locations: Optional[dict] = None) -> List[Dict[str, 
     return records
 
 
+def _template_content_root(template_type: Any, config: Config) -> Optional[str]:
+    if not isinstance(template_type, str):
+        return None
+    return {"kickstart": config.kickstart_root, "ansible": config.ansible_root, "boot": config.tftp_root}.get(template_type)
+
+
+def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
+    heading = "<h2>Template source</h2>"
+    unavailable = heading + "<p>Template source is unavailable. Check the content path, readability, and size limit.</p>"
+    root = _template_content_root(template.get("template_type"), config)
+    path = template.get("content_path")
+    if not root or not isinstance(path, str) or not _inside(path, root):
+        return unavailable
+    try:
+        resolved_path = os.path.realpath(path)
+        if not _inside(resolved_path, root) or not os.path.isfile(resolved_path):
+            return unavailable
+        resolved_root = os.path.realpath(root)
+        parts = os.path.relpath(resolved_path, resolved_root).split(os.sep)
+        if ".." in parts:
+            return unavailable
+        directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+        directory = os.open(resolved_root, directory_flags)
+        try:
+            for part in parts[:-1]:
+                child = os.open(part, directory_flags, dir_fd=directory)
+                os.close(directory)
+                directory = child
+            descriptor = os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW, dir_fd=directory)
+        finally:
+            os.close(directory)
+        with os.fdopen(descriptor, "rb") as stream:
+            metadata = os.fstat(stream.fileno())
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > config.max_template_bytes:
+                return unavailable
+            source = stream.read(config.max_template_bytes + 1)
+        if len(source) > config.max_template_bytes:
+            return unavailable
+        return heading + "<pre>{}</pre>".format(html.escape(source.decode("utf-8")))
+    except (OSError, ValueError):
+        return unavailable
+
+
 def _inside(path: str, root: str) -> bool:
     if not path or not root or not os.path.isabs(path) or not os.path.isabs(root):
         return False
@@ -487,7 +530,6 @@ def validate_catalogs(config: Config) -> List[Finding]:
         elif not os.path.isdir(path) or not os.access(path, os.R_OK):
             report("roles", role, Finding("error", resource, "Role path is not a readable directory."), "role_path")
 
-    template_roots = {"kickstart": config.kickstart_root, "ansible": config.ansible_root, "boot": config.tftp_root}
     for template in catalogs["templates"]:
         resource = str(template.get("name") or template["id"])
         allowed_variables = template.get("allowed_variables", [])
@@ -521,7 +563,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
             report("templates", template, Finding("error", resource, "Every variable_defaults key must be listed in allowed_variables."), "variable_defaults")
         template_type = template.get("template_type")
         path = template.get("content_path")
-        root = template_roots.get(template_type)
+        root = _template_content_root(template_type, config)
         if root is None:
             report("templates", template, Finding("error", resource, "Template type is unsupported."), "template_type")
         elif not isinstance(path, str) or not _inside(path, root):
@@ -1135,6 +1177,8 @@ def dispatch(
         display_name = record.get("hostname") or record.get("name") or record["id"]
         detail = _record_detail(catalog_action, record, catalogs)
         if "preview" in identity.capabilities:
+            if catalog_action == "templates":
+                detail += _template_source_preview(record, active)
             if catalog_action == "hosts":
                 query = urlencode({"action": "validate", "host_id": record_id})
                 detail += '<p><a href="?{}">Validate this host</a></p>'.format(html.escape(query, quote=True))
