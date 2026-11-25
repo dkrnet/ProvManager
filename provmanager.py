@@ -281,6 +281,15 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
     return heading + "<pre>{}</pre>".format(html.escape(source))
 
 
+def _template_name_allowed(name: Any, allowed_names) -> bool:
+    return name in allowed_names or (
+        "interfaces" in allowed_names
+        and isinstance(name, str)
+        and name.startswith("interfaces.")
+        and TEMPLATE_NAME_PATTERN.fullmatch(name) is not None
+    )
+
+
 def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[List[str]] = None) -> List[str]:
     chunks = []
     end = 0
@@ -288,7 +297,7 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
     token_pattern = r"\{\{[ \t]*(" + TEMPLATE_NAME_SYNTAX + r")[ \t]*\}\}|\{\{|\}\}|\{%|%\}|\{#|#\}"
     for match in re.finditer(token_pattern, source):
         name = match.group(1)
-        if name is None or name not in allowed_names:
+        if name is None or not _template_name_allowed(name, allowed_names):
             # An invalid opener can leave a closing delimiter behind. Report
             # the opener rather than also counting its matching closer.
             if issues is not None and match.group() == pending_closer:
@@ -434,7 +443,9 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     if any(not isinstance(name, str) or not TEMPLATE_NAME_PATTERN.fullmatch(name) for name in allowed + required):
         raise ValueError("Check the variable names declared on the template.")
     allowed_names = set(allowed)
-    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
+    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or any(
+        not _template_name_allowed(name, allowed_names) for name in set(required) | defaults.keys()
+    ):
         raise ValueError("Check the template allowlist for duplicate or undeclared names.")
     missing = sorted(name for name in required if _template_value(name, host, values, defaults, installer) is None)
     if missing:
@@ -495,17 +506,20 @@ def _template_variable_reference(template: Dict[str, Any]) -> str:
     if any(not isinstance(name, str) or not TEMPLATE_NAME_PATTERN.fullmatch(name) for name in names):
         return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
     allowed_names = set(allowed)
-    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
+    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or any(
+        not _template_name_allowed(name, allowed_names) for name in set(required) | defaults.keys()
+    ):
         return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
     if not allowed:
         return heading + "<p>No variables are declared.</p>"
     required_names = set(required)
+    documented_names = allowed + [name for name in required if name not in allowed_names]
     rows = "".join(
         "<tr><th scope=\"row\"><code>{}</code></th><td>{}</td><td>{}</td></tr>".format(
             html.escape(name), "Yes" if name in required_names else "No",
             "Yes" if defaults.get(name) is not None else "No",
         )
-        for name in allowed
+        for name in documented_names
     )
     return heading + (
         '<table><thead><tr><th scope="col">Variable</th><th scope="col">Required</th>'
@@ -900,13 +914,13 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
             required_names = set(required_variables)
             if len(required_names) != len(required_variables):
                 report("templates", template, Finding("error", resource, "required_variables contains duplicate names."), "required_variables")
-            if valid_allowlist and required_names - set(allowed_variables):
+            if valid_allowlist and any(not _template_name_allowed(name, allowed_variables) for name in required_names):
                 message = "Every required_variables name must be listed in allowed_variables."
                 report("templates", template, Finding("error", resource, message), "required_variables")
         defaults = template.get("variable_defaults", {})
         if not isinstance(defaults, dict):
             report("templates", template, Finding("error", resource, "variable_defaults must be a mapping of names to values."), "variable_defaults")
-        elif valid_allowlist and defaults.keys() - set(allowed_variables):
+        elif valid_allowlist and any(not _template_name_allowed(name, allowed_variables) for name in defaults):
             report("templates", template, Finding("error", resource, "Every variable_defaults key must be listed in allowed_variables."), "variable_defaults")
         template_type = template.get("template_type")
         path = template.get("content_path")
@@ -987,7 +1001,7 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                     missing = sorted({
                         name for name in (*required, *template_placeholders.get(template_id, ()))
                         if isinstance(name, str) and TEMPLATE_NAME_PATTERN.fullmatch(name)
-                        and name in allowed and _template_value(name, host, variables, defaults, installer) is None
+                        and _template_name_allowed(name, allowed) and _template_value(name, host, variables, defaults, installer) is None
                     })
                     if missing:
                         message = "Missing required template variables: " + ", ".join(missing) + "."

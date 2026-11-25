@@ -36,8 +36,11 @@ interfaces:
     ipv4_netmask: 255.255.255.0
 ```
 
-Allowlist each reference used by a template, for example
-`interfaces.eno2.ipv4_address` for `{{ interfaces.eno2.ipv4_address }}`.
+Add `interfaces` to a template's `allowed_variables` to allow all supported
+dotted interface references for the selected host. To limit access, allowlist
+individual references such as `interfaces.eno2.ipv4_address` instead. Both
+forms allow `{{ interfaces.eno2.ipv4_address }}`. A missing NIC or field still
+produces a missing-value finding when the template needs it.
 Boot templates can use `{{ provisioning_ipv4_address }}` and
 `{{ provisioning_mac_address }}` after adding them to their allowlist.
 The selected NIC also supplies the existing `ipv4_address` and `mac_address`

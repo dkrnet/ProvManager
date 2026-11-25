@@ -270,7 +270,8 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     ).body
 
 
-def test_template_preview_resolves_individual_and_provisioning_interface_fields(tmp_path: Path) -> None:
+@pytest.mark.parametrize("interface_allowlist", ["interfaces", "interfaces.eno2.ipv4_address, interfaces.eno2.ipv4_netmask"])
+def test_template_preview_resolves_individual_and_provisioning_interface_fields(tmp_path: Path, interface_allowlist: str) -> None:
     config = replace(_config(tmp_path), kickstart_root=str(tmp_path))
     source = tmp_path / "setup.ks"
     source.write_text("{{ provisioning_interface }} {{ ipv4_address }} {{ interfaces.eno2.ipv4_address }} {{ interfaces.eno2.ipv4_netmask }}", encoding="utf-8")
@@ -283,7 +284,8 @@ def test_template_preview_resolves_individual_and_provisioning_interface_fields(
     )
     Path(config.templates_file).write_text(
         f"schema_version: 1\nrecords: [{{id: ks, name: Setup, template_type: kickstart, content_path: '{source}', "
-        "allowed_variables: [provisioning_interface, ipv4_address, interfaces.eno2.ipv4_address, interfaces.eno2.ipv4_netmask]}]\n",
+        f"allowed_variables: [provisioning_interface, ipv4_address, {interface_allowlist}], "
+        "required_variables: [interfaces.eno2.ipv4_address]}]\n",
         encoding="utf-8",
     )
     viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
@@ -298,7 +300,7 @@ def test_template_preview_resolves_individual_and_provisioning_interface_fields(
     ).body
     hosts.write_text(original.replace("198.51.100.10", "invalid"), encoding="utf-8")
     assert b"Interface eno2 has an invalid ipv4_address." in _dispatch("action=validate&host_id=host", viewer, config).body
-    assert b"Template variable interfaces.eno2.ipv4_address has no value." in _dispatch(query, viewer, config).body
+    assert b"Missing required template variables: interfaces.eno2.ipv4_address." in _dispatch(query, viewer, config).body
 
 
 def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> None:
