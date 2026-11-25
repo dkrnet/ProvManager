@@ -27,10 +27,25 @@ def _request(config: Config, query: str, identity: Identity = READER):
 def test_hosts_list_links_to_scoped_validation_for_authorized_reader(tmp_path: Path) -> None:
     config = _config(tmp_path, "  - {id: a, hostname: alpha.example, mac_addresses: []}\n")
     viewer = replace(READER, capabilities=READER.capabilities | {"preview"})
-    assert b'<th scope="col">Validation</th>' not in _request(config, "").body
+    assert b'>Validation</a></th>' not in _request(config, "").body
     body = _request(config, "", viewer).body
-    assert b'<th scope="col">Validation</th>' in body
+    assert b'sort=validation&amp;direction=asc">Validation</a>' in body
     assert b'<a href="?action=validate&amp;host_id=a">1 finding</a>' in body
+
+
+def test_validation_sort_orders_by_finding_count_before_paging(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        "  - {id: a, hostname: alpha.example, mac_addresses: []}\n"
+        "  - {id: b, hostname: beta.example, mac_addresses: ['02:00:00:00:00:02']}\n",
+        page_size=1,
+    )
+    viewer = replace(READER, capabilities=READER.capabilities | {"preview"})
+    ascending = _request(config, "sort=validation&direction=asc", viewer).body
+    descending = _request(config, "sort=validation&direction=desc", viewer).body
+    assert b">beta.example</a>" in ascending and b">alpha.example</a>" not in ascending
+    assert b">alpha.example</a>" in descending and b">beta.example</a>" not in descending
+    assert b'sort=validation&amp;direction=desc">Validation</a>' in ascending
 
 
 def test_search_uses_documented_host_fields_and_escapes_query(tmp_path: Path) -> None:

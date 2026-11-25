@@ -856,7 +856,8 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
     query = _query_value(params, "q")
     enabled_filter = _query_value(params, "enabled").casefold()
     selected_sort = _query_value(params, "sort")
-    if selected_sort not in columns:
+    sortable_columns = (*columns, "validation") if finding_counts is not None else columns
+    if selected_sort not in sortable_columns:
         selected_sort = sort_field
     direction = "desc" if _query_value(params, "direction").casefold() == "desc" else "asc"
     filtered = records
@@ -866,17 +867,18 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
     if enabled_filter in {"true", "false"}:
         desired = enabled_filter == "true"
         filtered = [record for record in filtered if record.get("enabled") is desired]
-    sorted_records = sorted(
-        filtered,
-        key=lambda record: (str(record.get(selected_sort, "")).casefold(), str(record.get("id", ""))),
-        reverse=direction == "desc",
-    )
+    def sort_key(record):
+        if selected_sort == "validation" and finding_counts is not None:
+            return finding_counts.get(record["id"], 0), record["id"]
+        return str(record.get(selected_sort, "")).casefold(), record["id"]
+
+    sorted_records = sorted(filtered, key=sort_key, reverse=direction == "desc")
     page_count = max(1, (len(sorted_records) + config.list_page_size - 1) // config.list_page_size)
     page = _page_number(_query_value(params, "page"), page_count)
     start = (page - 1) * config.list_page_size
     page_records = sorted_records[start:start + config.list_page_size]
     heading_cells = []
-    for column in columns:
+    for column in sortable_columns:
         next_direction = "desc" if selected_sort == column and direction == "asc" else "asc"
         heading_query = {"action": action, "sort": column, "direction": next_direction}
         if query:
@@ -886,8 +888,6 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
         heading_cells.append('<th scope="col"><a href="?{}">{}</a></th>'.format(
             html.escape(urlencode(heading_query), quote=True), html.escape(column.replace("_", " ").title())
         ))
-    if finding_counts is not None:
-        heading_cells.append('<th scope="col">Validation</th>')
     headings = "".join(heading_cells)
     if not page_records:
         rows = '<tr><td colspan="{}">No {} are configured.</td></tr>'.format(len(heading_cells), html.escape(title.lower()))
