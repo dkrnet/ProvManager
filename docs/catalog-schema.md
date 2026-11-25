@@ -15,6 +15,9 @@ The initial implementation opens catalog files for reading only. Loading or view
 
 ## Minimal examples
 
+When supplied, `enabled` must be a YAML boolean. Omitted values default to
+enabled. Optional `description` fields must be text within `MAX_DESCRIPTION_CHARS`.
+
 ```yaml
 schema_version: 1
 records:

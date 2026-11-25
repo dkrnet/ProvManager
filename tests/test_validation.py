@@ -36,6 +36,21 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_common_catalog_field_validation(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), max_description_chars=5)
+    _catalog(
+        Path(config.roles_file),
+        f"  - {{id: a, name: Invalid, role_path: '{config.ansible_root}', description: [], enabled: 'false'}}\n"
+        f"  - {{id: b, name: Long, role_path: '{config.ansible_root}', description: longer, enabled: false}}\n"
+        f"  - {{id: c, name: Legacy, role_path: '{config.ansible_root}', description: short}}\n",
+    )
+    assert [(item.resource, item.message) for item in validate_catalogs(config)] == [
+        ("Invalid", "Description must be text."),
+        ("Invalid", "Enabled must be true or false."),
+        ("Long", "Description exceeds the configured character limit."),
+    ]
+
+
 def test_host_validation_reports_invalid_fields_and_references(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(

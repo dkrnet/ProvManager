@@ -187,6 +187,8 @@ Membership in the following OS groups determines effective permissions. The appl
 
 ## Common Record Rules
 
+- Read-only validation shall report non-boolean `enabled` values and descriptions that are not text or exceed `MAX_DESCRIPTION_CHARS`. An omitted `enabled` field retains the existing enabled default.
+
 - Data files shall contain a documented schema version, stable record identifiers, and a list or mapping of records; the schema shall be documented with examples in the repository.
 - Every managed record shall have an immutable identifier, a unique name within its resource type, optional Markdown description, creation timestamp, update timestamp, creator username, and last-editor username.
 - Record timestamps shall be ISO 8601 UTC. A logical user-facing name may change without breaking references because cross-record references shall use stable IDs.

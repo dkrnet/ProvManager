@@ -305,6 +305,14 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 findings.append(Finding("error", str(record.get("id")), "The {} duplicates another record.".format(name_field)))
             else:
                 seen[canonical] = record.get("id")
+            resource = value if isinstance(value, str) and value else record["id"]
+            description = record.get("description")
+            if "description" in record and not isinstance(description, str):
+                findings.append(Finding("error", resource, "Description must be text."))
+            elif isinstance(description, str) and len(description) > config.max_description_chars:
+                findings.append(Finding("error", resource, "Description exceeds the configured character limit."))
+            if not isinstance(record.get("enabled", True), bool):
+                findings.append(Finding("error", resource, "Enabled must be true or false."))
 
     installers = {record["id"]: record for record in catalogs["installers"]}
     roles = {record["id"]: record for record in catalogs["roles"]}
