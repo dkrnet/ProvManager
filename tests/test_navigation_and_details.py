@@ -68,6 +68,8 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     inventory = response.body.split(b"<pre>", 1)[1].split(b"</pre>", 1)[0]
     assert inventory == b"all:\n  hosts:\n    alpha.example:\n      ansible_host: 192.0.2.10\n    beta.example: {}\n"
     assert b"Has validation errors" in response.body
+    assert b'href="?action=validate&amp;host_id=e&amp;severity=error">View validation errors</a>' in response.body
+    assert response.body.count(b">View validation errors</a>") == 1
     assert b"Provisioning state must be ready or staged" in response.body
     assert b"private-value" not in response.body
     assert not Path(config.inventory_output_file).exists()

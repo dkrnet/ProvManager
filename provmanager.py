@@ -909,17 +909,20 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding]) -> 
     excluded = []
     for host in sorted(hosts, key=lambda record: (str(record.get("hostname") or record["id"]).casefold(), record["id"])):
         hostname = host.get("hostname") or host["id"]
+        validation_link = ""
         if host.get("enabled", True) is False:
             reason = "Disabled"
         elif host.get("provisioning_state") not in ("ready", "staged"):
             reason = "Provisioning state must be ready or staged"
         elif host["id"] in invalid:
             reason = "Has validation errors"
+            query = urlencode({"action": "validate", **_validation_scope("hosts", host["id"]), "severity": "error"})
+            validation_link = ' (<a href="?{}">View validation errors</a>)'.format(html.escape(query, quote=True))
         else:
             address = host.get("ipv4_address") or host.get("ipv6_address")
             included[hostname] = {"ansible_host": address} if address else {}
             continue
-        excluded.append(f"<li>{_record_link('hosts', host)} — {reason}</li>")
+        excluded.append(f"<li>{_record_link('hosts', host)} — {reason}{validation_link}</li>")
     inventory = yaml.safe_dump({"all": {"hosts": included}}, sort_keys=False, allow_unicode=True)
     exclusions = "<ul>{}</ul>".format("".join(excluded)) if excluded else "<p>No hosts excluded.</p>"
     return (
