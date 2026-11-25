@@ -151,8 +151,13 @@ def load_catalog(path: str) -> List[Dict[str, Any]]:
         raise CatalogError("The catalog file is not available.")
     except OSError:
         raise CatalogError("The catalog file could not be read.")
-    except yaml.YAMLError:
-        raise CatalogError("The catalog contains invalid YAML and was not loaded.")
+    except yaml.YAMLError as error:
+        message = "The catalog contains invalid YAML and was not loaded."
+        # Parser messages can quote catalog data. Show only the location.
+        mark = getattr(error, "problem_mark", None)
+        if mark is not None:
+            message += f" The parser stopped at line {mark.line + 1}, column {mark.column + 1}."
+        raise CatalogError(message) from None
     if not isinstance(document, dict):
         raise CatalogError("The catalog must be a versioned mapping.")
     if document.get("schema_version") != 1:

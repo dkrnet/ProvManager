@@ -36,6 +36,17 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_invalid_hosts_yaml_finding_reports_parser_location(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords: [private-value}\n", encoding="utf-8"
+    )
+    finding, = validate_catalogs(config)
+    assert finding.resource == "Hosts"
+    assert "line 2, column 24" in finding.message
+    assert "private-value" not in finding.message
+
+
 def test_common_catalog_field_validation(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), max_description_chars=5)
     _catalog(
