@@ -375,6 +375,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - The template editor shall use a monospace multiline source field and shall not interpret template content as application HTML.
 - Saving a template shall validate type, size, variables, path targets, and reference integrity without applying output.
 - `template_preview` shall render an explicit selected host/template pairing with variables and identify missing values/errors without writing target files.
+- The initial preview shall support only `{{ name }}` placeholders for allowlisted scalar values. Host values take precedence over template defaults. Escape rendered text for HTML, redact values for sensitive variable names, and enforce `MAX_TEMPLATE_BYTES` on both source and rendered text.
 - Disabled or referenced templates shall follow the same dependency and edit-conflict rules as other catalogs.
 
 ## Operations Dashboard — `action=operations`

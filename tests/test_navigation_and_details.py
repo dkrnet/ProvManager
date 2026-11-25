@@ -51,6 +51,29 @@ def test_template_detail_lists_variable_requirements_and_default_availability(tm
     assert b"<code>flag</code></th><td>No</td><td>Yes</td>" in body
 
 
+def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), kickstart_root=str(tmp_path))
+    source = tmp_path / "setup.ks"
+    source.write_text("{{ site }} {{ count }} {{ api_token }}", encoding="utf-8")
+    Path(config.hosts_file).write_text("schema_version: 1\nrecords: [{id: host, template_id: setup, variables: {site: '<lab>', api_token: private-value}}]\n", encoding="utf-8")
+    Path(config.templates_file).write_text(
+        f"schema_version: 1\nrecords: [{{id: setup, template_type: kickstart, content_path: '{source}', allowed_variables: [site, count, api_token], variable_defaults: {{site: default, count: 0}}}}]\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
+    query = "action=template_preview&host_id=host&template_id=setup"
+    assert b"Preview selected template" in _dispatch("action=host_view&id=host", viewer, config).body
+    response = _dispatch(query, viewer, config)
+    assert response.status == "200 OK"
+    assert b"<pre>&lt;lab&gt; 0 [redacted]</pre>" in response.body
+    assert b"private-value" not in response.body
+    assert _dispatch(query, replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
+    source.write_text("{{ site.upper() }}", encoding="utf-8")
+    assert b"Unsupported template syntax" in _dispatch(query, viewer, config).body
+    source.write_text("{{ missing }}", encoding="utf-8")
+    assert b"is not allowlisted" in _dispatch(query, viewer, config).body
+
+
 def test_template_detail_source_preview_is_bounded_escaped_and_authorized(tmp_path: Path) -> None:
     root = tmp_path / "kickstart"
     root.mkdir()

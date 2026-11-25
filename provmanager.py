@@ -51,6 +51,7 @@ ACTION_CAPABILITIES = {
     "template_view": "catalogs_read",
     "operations": "operations_read",
     "preview": "preview",
+    "template_preview": "preview",
     "validate": "preview",
     "generate_submit": "generate",
     "apply": "apply",
@@ -218,9 +219,8 @@ def _template_content_root(template_type: Any, config: Config) -> Optional[str]:
     return {"kickstart": config.kickstart_root, "ansible": config.ansible_root, "boot": config.tftp_root}.get(template_type)
 
 
-def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
-    heading = "<h2>Template source</h2>"
-    unavailable = heading + "<p>Template source is unavailable. Check the content path, readability, and size limit.</p>"
+def _read_template_source(template: Dict[str, Any], config: Config) -> Optional[str]:
+    unavailable = None
     root = _template_content_root(template.get("template_type"), config)
     path = template.get("content_path")
     if not root or not isinstance(path, str) or not _inside(path, root):
@@ -250,9 +250,60 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
             source = stream.read(config.max_template_bytes + 1)
         if len(source) > config.max_template_bytes:
             return unavailable
-        return heading + "<pre>{}</pre>".format(html.escape(source.decode("utf-8")))
+        return source.decode("utf-8")
     except (OSError, ValueError):
         return unavailable
+
+
+def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
+    heading = "<h2>Template source</h2>"
+    source = _read_template_source(template, config)
+    if source is None:
+        return heading + "<p>Template source is unavailable. Check the content path, readability, and size limit.</p>"
+    return heading + "<pre>{}</pre>".format(html.escape(source))
+
+
+def _render_template_preview(source: str, host: dict, template: dict, limit: int) -> str:
+    allowed = template.get("allowed_variables", [])
+    required = template.get("required_variables", [])
+    defaults = template.get("variable_defaults", {})
+    values = host.get("variables", {})
+    if not isinstance(allowed, list) or not isinstance(required, list) or not isinstance(defaults, dict) or not isinstance(values, dict):
+        raise ValueError("Check the variable declarations on the host and template.")
+    if any(not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name) for name in allowed + required):
+        raise ValueError("Check the variable names declared on the template.")
+    allowed_names = set(allowed)
+    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
+        raise ValueError("Check the template allowlist for duplicate or undeclared names.")
+    missing = sorted(name for name in required if values.get(name, defaults.get(name)) is None)
+    if missing:
+        raise ValueError("Missing required template variables: " + ", ".join(missing) + ".")
+
+    chunks = re.split(r"\{\{[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\}\}", source)
+    remaining = limit
+    for index, chunk in enumerate(chunks):
+        if index % 2 == 0:
+            if any(delimiter in chunk for delimiter in ("{{", "}}", "{%", "%}", "{#", "#}")):
+                raise ValueError("Unsupported template syntax. Use {{ variable_name }} placeholders.")
+        else:
+            if chunk not in allowed_names:
+                raise ValueError(f"Template variable {chunk} is not allowlisted.")
+            value = values.get(chunk, defaults.get(chunk))
+            if value is None:
+                raise ValueError(f"Template variable {chunk} has no value.")
+            if _sensitive_key(chunk):
+                chunk = "[redacted]"
+            elif isinstance(value, bool):
+                chunk = "true" if value else "false"
+            elif isinstance(value, (str, int, float)):
+                chunk = str(value)
+            else:
+                raise ValueError(f"Template variable {chunk} must have a scalar value.")
+            chunks[index] = chunk
+        remaining -= len(chunk.encode("utf-8"))
+        if remaining < 0:
+            raise ValueError("Rendered preview exceeds MAX_TEMPLATE_BYTES.")
+    return "".join(chunks)
 
 
 def _template_variable_reference(template: Dict[str, Any]) -> str:
@@ -1218,6 +1269,11 @@ def dispatch(
             if catalog_action == "templates":
                 detail += _template_variable_reference(record)
                 detail += _template_source_preview(record, active)
+            if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
+                template_id = record.get("template_id")
+                if isinstance(template_id, str) and template_id:
+                    preview_query = urlencode({"action": "template_preview", "host_id": record_id, "template_id": template_id})
+                    detail += '<p><a href="?{}">Preview selected template</a></p>'.format(html.escape(preview_query, quote=True))
             query = urlencode({"action": "validate", **_validation_scope(catalog_action, record_id)})
             detail += '<p><a href="?{}">Validate this {}</a></p>'.format(
                 html.escape(query, quote=True), html.escape(singular_title.lower())
@@ -1239,6 +1295,30 @@ def dispatch(
             identity=identity,
             config=active,
         )
+    if action == "template_preview":
+        title = "Rendered template preview"
+        if not {"hosts_read", "catalogs_read"}.issubset(identity.capabilities):
+            return _html_response(title, "<p>Host and template read access are required.</p>", "403 Forbidden", public=False, identity=identity, config=active)
+        host_id = _query_value(params, "host_id")
+        template_id = _query_value(params, "template_id")
+        if not host_id or not template_id:
+            return _html_response(title, "<p>Select a host and template.</p>", "400 Bad Request", public=False, identity=identity, config=active)
+        try:
+            host = next((record for record in load_catalog(active.hosts_file) if record["id"] == host_id), None)
+            template = next((record for record in load_catalog(active.templates_file) if record["id"] == template_id), None)
+        except CatalogError as error:
+            return _html_response(title, f"<p>{html.escape(str(error))}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
+        if host is None or template is None:
+            return _html_response(title, "<p>The host or template was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
+        source = _read_template_source(template, active)
+        try:
+            if source is None:
+                raise ValueError("Template source is unavailable. Check the content path, readability, encoding, and size limit.")
+            rendered = _render_template_preview(source, host, template, active.max_template_bytes)
+        except ValueError as error:
+            return _html_response(title, f"<p>{html.escape(str(error))}</p>", "400 Bad Request", public=False, identity=identity, config=active)
+        context = "<p>Host {} · Template {}</p>".format(_record_link("hosts", host), _record_link("templates", template))
+        return _html_response(title, context + f"<pre>{html.escape(rendered)}</pre>", public=False, identity=identity, config=active)
     if action == "validate":
         host_id = _query_value(params, "host_id")
         scope_catalog = _query_value(params, "catalog")

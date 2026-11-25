@@ -108,6 +108,9 @@ once in the required list.
 For ready and staged hosts, validation checks required names against the host's
 `variables` first and then the selected template's `variable_defaults` when the
 host omits a name. An explicit YAML null counts as missing. False and zero count
-as values. Value resolution during rendering is pending.
+as values. Host Detail links to a read-only rendered preview using the same
+precedence. Use `{{ name }}` for allowlisted scalar values. The preview supports
+plain substitution and redacts values for names recognized as sensitive.
+Both the source and rendered text are subject to `MAX_TEMPLATE_BYTES`.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.
