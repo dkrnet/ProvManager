@@ -29,6 +29,7 @@ except ImportError:  # pragma: no cover - safe plaintext fallback is tested dire
 
 PROVMANAGER_VERSION = "1.0.0"
 VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+TEMPLATE_SCALAR_TYPES = (str, int, float, bool)
 HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
@@ -304,14 +305,14 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
             value = values.get(chunk, defaults.get(chunk))
             if value is None:
                 raise ValueError(f"Template variable {chunk} has no value.")
+            if not isinstance(value, TEMPLATE_SCALAR_TYPES):
+                raise ValueError(f"Template variable {chunk} must have a scalar value.")
             if _sensitive_key(chunk):
                 chunk = "[redacted]"
             elif isinstance(value, bool):
                 chunk = "true" if value else "false"
-            elif isinstance(value, (str, int, float)):
-                chunk = str(value)
             else:
-                raise ValueError(f"Template variable {chunk} must have a scalar value.")
+                chunk = str(value)
             chunks[index] = chunk
         remaining -= len(chunk.encode("utf-8"))
         if remaining < 0:
@@ -726,6 +727,12 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 if missing:
                     message = "Missing required template variables: " + ", ".join(missing) + "."
                     report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else "template_id")
+                for name in sorted(template_placeholders.get(template_id, ())):
+                    value = variables.get(name, defaults.get(name))
+                    if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
+                        field = "variables" if name in variables else "template_id"
+                        message = f"Template variable {name} must have a scalar value."
+                        report("hosts", host, Finding("error", resource, message), field)
         for field, role_ids, message in (
             ("role_ids", host.get("role_ids"), "A role selected by this host has validation errors."),
             ("template_id", template.get("role_ids"), "The selected template references a role with validation errors."),

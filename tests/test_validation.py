@@ -93,8 +93,12 @@ def test_ready_host_requires_values_for_placeholders_used_in_source(tmp_path: Pa
     host = "  - {id: h, hostname: host.example, mac_addresses: ['02:00:00:00:00:01'], provisioning_state: ready, template_id: t"
     _catalog(Path(config.hosts_file), host + "}\n")
     assert any(item.message == "Missing required template variables: site." for item in validate_catalogs(config))
+    _catalog(Path(config.hosts_file), host + ", variables: {site: [lab]}}\n")
+    finding, = [item for item in validate_catalogs(config) if item.message == "Template variable site must have a scalar value."]
+    assert finding.location.startswith("Hosts, line 3, column ")
     _catalog(Path(config.hosts_file), host + ", variables: {site: lab}}\n")
     assert not any(item.message.startswith("Missing required template variables") for item in validate_catalogs(config))
+    assert not any("must have a scalar value" in item.message for item in validate_catalogs(config))
 
 
 def test_required_template_variables_must_be_unique_allowlisted_names(tmp_path: Path) -> None:

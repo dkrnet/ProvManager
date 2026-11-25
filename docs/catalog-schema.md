@@ -116,6 +116,7 @@ Catalog validation checks source placeholders without selecting a host. A
 source finding includes the first unsupported or undeclared placeholder's
 source line and the YAML location of the template's `content_path`.
 Readiness checks also require a value for each allowlisted placeholder used in
-the source, even if the name is omitted from `required_variables`.
+the source, even if the name is omitted from `required_variables`. A value
+used by a placeholder must be text, a number, or a boolean.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.
