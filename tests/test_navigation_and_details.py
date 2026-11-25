@@ -74,11 +74,15 @@ def test_rendered_template_preview_is_allowlisted_escaped_and_authorized(tmp_pat
     assert b"is not allowlisted" in _dispatch(query, viewer, config).body
     scoped = "action=validate&catalog=templates&record_id=setup"
     source.write_text("# template\n{{ missing }}", encoding="utf-8")
-    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch(scoped, viewer, config).body
-    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch("action=validate", viewer, config).body
-    assert b"Template variable missing is not allowlisted (source line 2)." in _dispatch("action=template_view&id=setup", viewer, config).body
-    source.write_text("# template\n{% unsupported %}", encoding="utf-8")
-    assert b"Unsupported template syntax at source line 2." in _dispatch(scoped, viewer, config).body
+    finding = b"Template variable missing is not allowlisted (source line 2, column 1)."
+    assert finding in _dispatch(scoped, viewer, config).body
+    assert finding in _dispatch("action=validate", viewer, config).body
+    assert finding in _dispatch("action=template_view&id=setup", viewer, config).body
+    source.write_text("# template\n{{ missing }}\n  {% unsupported %}", encoding="utf-8")
+    body = _dispatch(scoped, viewer, config).body
+    assert finding in body
+    assert b"Unsupported template syntax at source line 3, column 3." in body
+    assert body.count(b"Unsupported template syntax at") == 1
     source.write_text("{{ site }}", encoding="utf-8")
     assert b"No validation findings match" in _dispatch(scoped, viewer, config).body
 

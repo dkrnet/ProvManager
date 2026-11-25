@@ -112,9 +112,9 @@ as values. Host Detail links to a read-only rendered preview using the same
 precedence. Use `{{ name }}` for allowlisted scalar values. The preview supports
 plain substitution and redacts values for names recognized as sensitive.
 Both the source and rendered text are subject to `MAX_TEMPLATE_BYTES`.
-Catalog validation checks source placeholders without selecting a host. A
-source finding includes the first unsupported or undeclared placeholder's
-source line and the YAML location of the template's `content_path`.
+Catalog validation checks source placeholders without selecting a host. It
+reports up to 20 source errors per template, with the source line and column
+and the YAML location of the template's `content_path`.
 Readiness checks also require a value for each allowlisted placeholder used in
 the source, even if the name is omitted from `required_variables`. A value
 used by a placeholder must be text, a number, or a boolean. Validation also

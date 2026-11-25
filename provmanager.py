@@ -264,18 +264,37 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
     return heading + "<pre>{}</pre>".format(html.escape(source))
 
 
-def _checked_template_chunks(source: str, allowed_names: set) -> List[str]:
+def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[List[str]] = None) -> List[str]:
     chunks = []
     end = 0
+    pending_closer = None
     token_pattern = r"\{\{[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\}\}|\{\{|\}\}|\{%|%\}|\{#|#\}"
     for match in re.finditer(token_pattern, source):
         name = match.group(1)
-        if name is None:
+        if name is None or name not in allowed_names:
+            # An invalid opener can leave a closing delimiter behind. Report
+            # the opener rather than also counting its matching closer.
+            if issues is not None and match.group() == pending_closer:
+                pending_closer = None
+                continue
             line = source.count("\n", 0, match.start()) + 1
-            raise ValueError(f"Unsupported template syntax at source line {line}. Use {{{{ variable_name }}}} placeholders.")
-        if name not in allowed_names:
-            line = source.count("\n", 0, match.start()) + 1
-            raise ValueError(f"Template variable {name} is not allowlisted (source line {line}).")
+            column = match.start() - source.rfind("\n", 0, match.start())
+            position = f"source line {line}, column {column}"
+            if name is None:
+                message = f"Unsupported template syntax at {position}. Use {{{{ variable_name }}}} placeholders."
+            else:
+                message = f"Template variable {name} is not allowlisted ({position})."
+            if issues is None:
+                raise ValueError(message)
+            if len(issues) == 20:
+                issues.append("Additional template source errors were omitted.")
+                break
+            issues.append(message)
+            pending_closer = {"{{": "}}", "{%": "%}", "{#": "#}"}.get(match.group())
+            continue
+        if issues:
+            pending_closer = None
+            continue
         chunks.extend((source[end:match.start()], name))
         end = match.end()
     chunks.append(source[end:])
@@ -687,12 +706,13 @@ def validate_catalogs(config: Config) -> List[Finding]:
                 if source is None:
                     report("templates", template, Finding("error", resource, "Template source could not be read as UTF-8 within the size limit."), "content_path")
                 else:
-                    try:
-                        chunks = _checked_template_chunks(source, set(allowed_variables))
-                        template_placeholders[template["id"]] = set(chunks[1::2])
-                    except ValueError as error:
-                        report("templates", template, Finding("error", resource, str(error)), "content_path")
+                    issues = []
+                    chunks = _checked_template_chunks(source, set(allowed_variables), issues)
+                    if issues:
+                        for message in issues:
+                            report("templates", template, Finding("error", resource, message), "content_path")
                     else:
+                        template_placeholders[template["id"]] = set(chunks[1::2])
                         if isinstance(defaults, dict):
                             for name in sorted(template_placeholders[template["id"]]):
                                 value = defaults.get(name)
