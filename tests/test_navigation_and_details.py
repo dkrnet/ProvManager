@@ -36,6 +36,21 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     assert b">Audit Log</a>" not in response.body
 
 
+def test_template_detail_lists_variable_requirements_and_default_availability(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.templates_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        "  - {id: setup, name: Setup, allowed_variables: [site, flag], "
+        "required_variables: [site], variable_defaults: {flag: false}}\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"catalogs_read", "preview"}))
+    body = _dispatch("action=template_view&id=setup", viewer, config).body
+    assert b"<h2>Template variables</h2>" in body
+    assert b"<code>site</code></th><td>Yes</td><td>No</td>" in body
+    assert b"<code>flag</code></th><td>No</td><td>Yes</td>" in body
+
+
 def test_template_detail_source_preview_is_bounded_escaped_and_authorized(tmp_path: Path) -> None:
     root = tmp_path / "kickstart"
     root.mkdir()

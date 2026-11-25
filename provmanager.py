@@ -255,6 +255,35 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
         return unavailable
 
 
+def _template_variable_reference(template: Dict[str, Any]) -> str:
+    heading = "<h2>Template variables</h2>"
+    allowed = template.get("allowed_variables", [])
+    required = template.get("required_variables", [])
+    defaults = template.get("variable_defaults", {})
+    if not isinstance(allowed, list) or not isinstance(required, list) or not isinstance(defaults, dict):
+        return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
+    names = allowed + required
+    if any(not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name) for name in names):
+        return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
+    allowed_names = set(allowed)
+    if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
+        return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
+    if not allowed:
+        return heading + "<p>No variables are declared.</p>"
+    required_names = set(required)
+    rows = "".join(
+        "<tr><th scope=\"row\"><code>{}</code></th><td>{}</td><td>{}</td></tr>".format(
+            html.escape(name), "Yes" if name in required_names else "No",
+            "Yes" if defaults.get(name) is not None else "No",
+        )
+        for name in allowed
+    )
+    return heading + (
+        '<table><thead><tr><th scope="col">Variable</th><th scope="col">Required</th>'
+        '<th scope="col">Has default</th></tr></thead><tbody>{}</tbody></table>'
+    ).format(rows)
+
+
 def _inside(path: str, root: str) -> bool:
     if not path or not root or not os.path.isabs(path) or not os.path.isabs(root):
         return False
@@ -1187,6 +1216,7 @@ def dispatch(
         detail = _record_detail(catalog_action, record, catalogs)
         if "preview" in identity.capabilities:
             if catalog_action == "templates":
+                detail += _template_variable_reference(record)
                 detail += _template_source_preview(record, active)
             query = urlencode({"action": "validate", **_validation_scope(catalog_action, record_id)})
             detail += '<p><a href="?{}">Validate this {}</a></p>'.format(
