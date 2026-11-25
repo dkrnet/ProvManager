@@ -459,6 +459,19 @@ def validate_catalogs(config: Config) -> List[Finding]:
             template = templates.get(template_id) if isinstance(template_id, str) else None
             if template and _has_disabled_role(template.get("role_ids"), roles):
                 report("hosts", host, Finding("error", resource, "The selected template references a disabled role."), "template_id")
+            if template:
+                required = template.get("required_variables", [])
+                allowed = template.get("allowed_variables", [])
+                defaults = template.get("variable_defaults", {})
+                if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
+                    missing = sorted({
+                        name for name in required
+                        if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
+                        and name in allowed and variables.get(name, defaults.get(name)) is None
+                    })
+                    if missing:
+                        message = "Missing required template variables: " + ", ".join(missing) + "."
+                        report("hosts", host, Finding("error", resource, message), "variables" if "variables" in host else "template_id")
 
     for role in catalogs["roles"]:
         path = role.get("role_path")

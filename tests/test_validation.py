@@ -36,6 +36,19 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_ready_host_checks_required_template_values_with_host_precedence(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(Path(config.templates_file), "  - {id: t, name: Setup, allowed_variables: [site, count, flag], required_variables: [site, count, flag], variable_defaults: {site: lab, flag: false}}\n")
+    hosts = Path(config.hosts_file)
+    prefix = "  - {id: h, hostname: host.example, mac_addresses: ['02:00:00:00:00:01'], provisioning_state: ready, template_id: t, variables: "
+    _catalog(hosts, prefix + "{count: 0}}\n")
+    assert not any("Missing required template variables" in item.message for item in validate_catalogs(config))
+    _catalog(hosts, prefix + "{site: null}}\n")
+    finding, = [item for item in validate_catalogs(config) if item.message.startswith("Missing required template variables")]
+    assert finding.message == "Missing required template variables: count, site."
+    assert finding.location.startswith("Hosts, line 3, column ")
+
+
 def test_required_template_variables_must_be_unique_allowlisted_names(tmp_path: Path) -> None:
     config = _config(tmp_path)
     content = Path(config.kickstart_root) / "setup.ks"

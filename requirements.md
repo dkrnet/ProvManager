@@ -263,6 +263,7 @@ Each template record shall support `id`, `name`, `description`, `template_type`,
 - Template records may declare user-defined names in `allowed_variables`, a case-sensitive list of unique identifiers matching `[A-Za-z_][A-Za-z0-9_]*`. Omission means an empty allowlist. The allowlist applies to that template and does not define where values come from or which scope takes precedence.
 - Templates may declare `variable_defaults` as a mapping of template-scoped fallback values. Every key must appear in that template's `allowed_variables`.
 - Templates may declare `required_variables` as a list of unique names from their `allowed_variables`. Omission means no explicitly required variables.
+- For ready and staged hosts, validation shall report required template variables without values. A host variable takes precedence over the selected template's default for the same name. An explicit null counts as missing.
 - Missing required variables, invalid references, duplicate generated target paths, and malformed rendered output shall block staging/apply.
 - Editing a template shall not automatically overwrite previously deployed files. A preview and explicit apply are required.
 

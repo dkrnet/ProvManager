@@ -105,6 +105,9 @@ for its allowed names with `variable_defaults: {site_name: lab}`.
 Use `required_variables: [site_name]` to declare names that must have values
 when rendering. Each name must appear in the allowlist and may appear only
 once in the required list.
-Validation checks these declarations. Value resolution during rendering is pending.
+For ready and staged hosts, validation checks required names against the host's
+`variables` first and then the selected template's `variable_defaults` when the
+host omits a name. An explicit YAML null counts as missing. False and zero count
+as values. Value resolution during rendering is pending.
 Hosts may store host-scoped values in a mapping such as
 `variables: {site_name: lab}`. Mapping keys follow the same naming rules.
