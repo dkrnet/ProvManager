@@ -36,6 +36,8 @@ INSTALLER_TEMPLATE_PATHS = {
     "installer_kernel_path": "kernel_path",
     "installer_initrd_path": "initrd_path",
     "installer_efi_path": "efi_path",
+    "installer_kickstart_path": "kickstart_path",
+    "installer_stage2_path": "stage2_path",
 }
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
@@ -309,7 +311,10 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
 
 def _template_value(name: str, host: dict, values: dict, defaults: dict, installer: Optional[dict]) -> Any:
     if name in INSTALLER_TEMPLATE_PATHS:
-        path = installer.get(INSTALLER_TEMPLATE_PATHS[name]) if installer else None
+        field = INSTALLER_TEMPLATE_PATHS[name]
+        path = installer.get(field) if installer else None
+        if field in ("kickstart_path", "stage2_path") and _installer_locator_error(field, path):
+            return None
         return path if isinstance(path, str) and path.strip() else None
     if name in values:
         return values[name]
@@ -479,6 +484,27 @@ def _network_source_findings(resource: str, value: Any) -> List[Finding]:
     ):
         return [Finding("error", resource, "Network installer source must be a credential-free HTTP or HTTPS URL without a fragment.")]
     return []
+
+
+def _installer_locator_error(field: str, value: Any) -> Optional[str]:
+    if not isinstance(value, str) or not value or any(
+        character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value
+    ):
+        return f"{field} must be nonempty text without whitespace or control characters."
+    if field == "kickstart_path":
+        if ":" in value:
+            if _network_source_findings("", value):
+                return "kickstart_path must be a local file path or a credential-free HTTP(S) URL without a fragment."
+        elif ".." in value.split("/"):
+            return "kickstart_path must not contain parent-directory traversal."
+    elif "://" in value:
+        try:
+            locator = urlsplit(value)
+            if locator.username is not None or locator.password is not None:
+                return "stage2_path URLs must not contain credentials."
+        except ValueError:
+            return "stage2_path contains an invalid URL."
+    return None
 
 
 def _installer_source_findings(installer: Dict[str, Any], config: Config) -> List[Finding]:
@@ -792,6 +818,12 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
     for installer in catalogs["installers"]:
         for finding in _installer_readiness_findings(installer, config):
             report("installers", installer, finding)
+        for field in ("kickstart_path", "stage2_path"):
+            if field in installer:
+                message = _installer_locator_error(field, installer[field])
+                if message:
+                    resource = str(installer.get("name") or installer["id"])
+                    report("installers", installer, Finding("error", resource, message), field)
     dependency_warnings = {
         (finding.catalog, finding.record_id) for finding in findings if finding.severity == "warning"
     }

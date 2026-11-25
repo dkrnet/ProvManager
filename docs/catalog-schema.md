@@ -40,6 +40,13 @@ allowlist `installer_kernel_path`, `installer_initrd_path`, or
 `installer_efi_path` and reference them with `{{ name }}`. Values are the
 TFTP-relative paths as stored in the installer record. These reserved names
 are resolved from the installer alone.
+
+An installer can also set `kickstart_path: https://install.example/os/setup.ks`
+and `stage2_path: https://install.example/os/`. Kickstart can use a local file
+path instead. Allowlist `installer_kickstart_path` and
+`installer_stage2_path` to use them in a boot template. The values are inserted
+as stored, so the template supplies any boot option or device prefix required
+by the target. Catalog validation checks syntax without opening the targets.
 The inventory preview can filter hosts by one assigned group. Included hosts
 retain all their group memberships in the filtered YAML.
 

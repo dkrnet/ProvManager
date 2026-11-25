@@ -379,6 +379,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - The initial preview shall support only `{{ name }}` placeholders for allowlisted scalar values. Host values take precedence over template defaults. Escape rendered text for HTML, redact values for sensitive variable names, and enforce `MAX_TEMPLATE_BYTES` on both source and rendered text.
 - For the allowlisted name `hostname`, resolve an explicit host variable first, then the host's nonblank top-level hostname, then the template default. Readiness checks and preview shall use the same resolution order.
 - Resolve allowlisted `installer_kernel_path`, `installer_initrd_path`, and `installer_efi_path` from the host's selected installer. Preserve the stored TFTP-relative paths. These names are reserved for installer data, and an unavailable path counts as missing.
+- Installers may declare `kickstart_path` (a local path without parent traversal or a credential-free HTTP(S) URL without a fragment) and `stage2_path` (a rescue boot locator). Both values must be nonempty strings without whitespace or control characters. Expose them as reserved `installer_kickstart_path` and `installer_stage2_path` variables when allowlisted. Validate syntax without reading or fetching the targets.
 - Disabled or referenced templates shall follow the same dependency and edit-conflict rules as other catalogs.
 
 ## Operations Dashboard — `action=operations`

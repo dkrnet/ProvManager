@@ -183,16 +183,21 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     )
     ks, boot = tmp_path / "setup.ks", tmp_path / "grub.cfg"
     ks.write_text("# Kickstart preview", encoding="utf-8")
-    boot.write_text("# Boot preview for {{ hostname }}: /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}", encoding="utf-8")
+    boot.write_text(
+        "# Boot preview for {{ hostname }}: /{{ installer_kernel_path }} /{{ installer_initrd_path }} /{{ installer_efi_path }}\n"
+        "inst.ks={{ installer_kickstart_path }} inst.stage2={{ installer_stage2_path }}",
+        encoding="utf-8",
+    )
     Path(config.installers_file).write_text(
-        "schema_version: 1\nrecords: [{id: image, name: Image, kernel_path: os/vmlinuz, initrd_path: os/initrd.img, efi_path: os/boot.efi}]\n",
+        "schema_version: 1\nrecords: [{id: image, name: Image, kernel_path: os/vmlinuz, initrd_path: os/initrd.img, efi_path: os/boot.efi, "
+        "kickstart_path: 'https://install.example/setup.ks', stage2_path: 'https://install.example/rescue/'}]\n",
         encoding="utf-8",
     )
     Path(config.templates_file).write_text(
         "schema_version: 1\nrecords:\n"
         f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{ks}'}}\n"
         f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{boot}', "
-        "allowed_variables: [hostname, installer_kernel_path, installer_initrd_path, installer_efi_path], "
+        "allowed_variables: [hostname, installer_kernel_path, installer_initrd_path, installer_efi_path, installer_kickstart_path, installer_stage2_path], "
         "required_variables: [hostname, installer_kernel_path], variable_defaults: {hostname: fallback.example}}\n",
         encoding="utf-8",
     )
@@ -204,7 +209,8 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
     assert b"Missing required template variables" not in body
     for template_id, expected in (
         ("ks", b"# Kickstart preview"),
-        ("boot", b"# Boot preview for host.example: /os/vmlinuz /os/initrd.img /os/boot.efi"),
+        ("boot", b"# Boot preview for host.example: /os/vmlinuz /os/initrd.img /os/boot.efi\n"
+         b"inst.ks=https://install.example/setup.ks inst.stage2=https://install.example/rescue/"),
     ):
         assert b"<pre>" + expected + b"</pre>" in _dispatch(
             f"action=template_preview&host_id=host&template_id={template_id}", viewer, config,
@@ -213,7 +219,20 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path) -> None:
             f"action=template_view&id={template_id}", viewer, config,
         ).body
     installer_catalog = Path(config.installers_file)
-    installer_catalog.write_text(installer_catalog.read_text(encoding="utf-8").replace("kernel_path: os/vmlinuz, ", ""), encoding="utf-8")
+    installer_catalog.write_text(installer_catalog.read_text(encoding="utf-8").replace("https://install.example/setup.ks", "/ks/setup.ks"), encoding="utf-8")
+    assert b"inst.ks=/ks/setup.ks inst.stage2=https://install.example/rescue/" in _dispatch(
+        "action=template_preview&host_id=host&template_id=boot", viewer, config,
+    ).body
+    installer_catalog.write_text(installer_catalog.read_text(encoding="utf-8").replace("/ks/setup.ks", "ftp://install.example/setup.ks"), encoding="utf-8")
+    assert b"kickstart_path must be a local file path or a credential-free HTTP(S) URL" in _dispatch(
+        "action=validate&catalog=installers&record_id=image", viewer, config,
+    ).body
+    installer_catalog.write_text(
+        installer_catalog.read_text(encoding="utf-8")
+        .replace("ftp://install.example/setup.ks", "/ks/setup.ks")
+        .replace("kernel_path: os/vmlinuz, ", ""),
+        encoding="utf-8",
+    )
     assert b"Missing required template variables: installer_kernel_path." in _dispatch(
         "action=validate&host_id=host", viewer, config,
     ).body
