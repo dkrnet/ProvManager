@@ -208,6 +208,7 @@ Each host record shall support:
 | `hostname` | Unique canonical DNS hostname; required |
 | `description` | Markdown text |
 | `mac_addresses` | One or more normalized hardware MAC addresses |
+| `interfaces`, `provisioning_interface` | Optional interface mapping and selected NIC. Each NIC requires a MAC. Static IPv4 requires an address and netmask, and any gateway must be on its subnet. |
 | `ipv4_address` | Optional valid IPv4 address |
 | `ipv6_address` | Optional valid IPv6 address |
 | `network` | Optional network/subnet identifier or network metadata |
@@ -262,7 +263,7 @@ Each template record shall support `id`, `name`, `description`, `template_type`,
 - `template_type` shall distinguish `kickstart`, `boot`, `ansible`, and other explicitly supported renderer types.
 - Template bodies are source content, not Markdown descriptions; they must be displayed/edited as escaped plaintext with monospace formatting.
 - Rendering shall substitute only an allowlisted set of variables and shall never execute arbitrary Python, shell, Jinja expressions with unsafe functions, or filesystem access.
-- Template records may declare user-defined names in `allowed_variables`, a case-sensitive list of unique identifiers matching `[A-Za-z_][A-Za-z0-9_]*`. Omission means an empty allowlist. The allowlist applies to that template and does not define where values come from or which scope takes precedence.
+- Template records may declare `allowed_variables` as a case-sensitive list of unique identifiers matching `[A-Za-z_][A-Za-z0-9_]*` or supported dotted interface references. Omission means an empty allowlist. The allowlist applies to that template and does not define where values come from or which scope takes precedence.
 - Templates may declare `variable_defaults` as a mapping of template-scoped fallback values. Every key must appear in that template's `allowed_variables`.
 - Templates may declare `required_variables` as a list of unique names from their `allowed_variables`. Omission means no explicitly required variables.
 - For ready and staged hosts, validation shall report required template variables without values. A host variable takes precedence over the selected template's default for the same name. An explicit null counts as missing.
@@ -379,7 +380,8 @@ All pages described below shall share the presentation, authorization, error, ca
 - The initial preview shall support only `{{ name }}` placeholders for allowlisted scalar values. Host values take precedence over template defaults. Escape rendered text for HTML, redact values for sensitive variable names, and enforce `MAX_TEMPLATE_BYTES` on both source and rendered text.
 - For the allowlisted name `hostname`, resolve an explicit host variable first, then the host's nonblank top-level hostname, then the template default. Readiness checks and preview shall use the same resolution order.
 - Resolve the reserved allowlisted name `short_hostname` from the host's top-level hostname before the first period, or from the entire hostname if it contains no period.
-- Resolve reserved, allowlisted `ipv4_address`, `mac_address`, `mac_addresses`, and `role_ids` from host metadata. Use the first MAC for `mac_address`. Emit normalized MACs and directly assigned role IDs as comma-separated text in catalog order. No assigned roles resolves to empty text.
+- Resolve reserved, allowlisted `ipv4_address`, `mac_address`, `mac_addresses`, and `role_ids` from host metadata. Use the first MAC for `mac_address` on legacy hosts. Emit normalized MACs and directly assigned role IDs as comma-separated text in catalog order. No assigned roles resolves to empty text.
+- Accept literal allowlisted references of the form `interfaces.<name>.<field>` for `mac_address`, `ipv4_address`, `ipv4_netmask`, and `ipv4_gateway`. Interface names are 1–15 ASCII letters, digits, underscores, or hyphens, with no leading hyphen. Expose `provisioning_interface` and the same fields prefixed by `provisioning_` for the designated NIC. For hosts using the interface schema, the selected NIC supplies the existing scalar IPv4 and MAC variables and the IPv4 address for Ansible inventory. Legacy host records retain their existing behavior.
 - Resolve allowlisted `installer_kernel_path`, `installer_initrd_path`, and `installer_efi_path` from the host's selected installer. Preserve the stored TFTP-relative paths. These names are reserved for installer data, and an unavailable path counts as missing.
 - Installers may declare `kickstart_path` (a local path without parent traversal or a credential-free HTTP(S) URL without a fragment) and `stage2_path` (a rescue boot locator). Both values must be nonempty strings without whitespace or control characters. Expose them as reserved `installer_kickstart_path` and `installer_stage2_path` variables when allowlisted. Validate syntax without reading or fetching the targets.
 - A Kickstart retrieval locator may contain the `{{ short_hostname }}` placeholder. Resolve it per host before boot template substitution. The combined boot and Kickstart preview shall show both rendered outputs, the resolved retrieval locator, and the proposed local target `KICKSTART_ROOT/<short_hostname>.cfg`. Report filename collisions among enabled hosts assigned Kickstart templates.

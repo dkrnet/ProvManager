@@ -270,6 +270,37 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
     ).body
 
 
+def test_template_preview_resolves_individual_and_provisioning_interface_fields(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), kickstart_root=str(tmp_path))
+    source = tmp_path / "setup.ks"
+    source.write_text("{{ provisioning_interface }} {{ ipv4_address }} {{ interfaces.eno2.ipv4_address }} {{ interfaces.eno2.ipv4_netmask }}", encoding="utf-8")
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        "  - id: host\n    hostname: host.example\n    provisioning_interface: eno1\n    interfaces:\n"
+        "      eno1: {mac_address: '02:00:00:00:00:01', ipv4_address: 192.0.2.10, ipv4_netmask: 255.255.255.0}\n"
+        "      eno2: {mac_address: '02:00:00:00:00:02', ipv4_address: 198.51.100.10, ipv4_netmask: 255.255.255.0}\n",
+        encoding="utf-8",
+    )
+    Path(config.templates_file).write_text(
+        f"schema_version: 1\nrecords: [{{id: ks, name: Setup, template_type: kickstart, content_path: '{source}', "
+        "allowed_variables: [provisioning_interface, ipv4_address, interfaces.eno2.ipv4_address, interfaces.eno2.ipv4_netmask]}]\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
+    query = "action=template_preview&host_id=host&template_id=ks"
+    assert b"<pre>eno1 192.0.2.10 198.51.100.10 255.255.255.0</pre>" in _dispatch(query, viewer, config).body
+    assert b"No validation findings" in _dispatch("action=validate&host_id=host", viewer, config).body
+    hosts = Path(config.hosts_file)
+    original = hosts.read_text(encoding="utf-8")
+    hosts.write_text(original.replace("192.0.2.10, ipv4_netmask: 255.255.255.0", "192.0.2.10, ipv4_netmask: 255.255.255.0, ipv4_gateway: 198.51.100.1"), encoding="utf-8")
+    assert b"Interface eno1 has an IPv4 gateway outside its subnet." in _dispatch(
+        "action=validate&host_id=host", viewer, config,
+    ).body
+    hosts.write_text(original.replace("198.51.100.10", "invalid"), encoding="utf-8")
+    assert b"Interface eno2 has an invalid ipv4_address." in _dispatch("action=validate&host_id=host", viewer, config).body
+    assert b"Template variable interfaces.eno2.ipv4_address has no value." in _dispatch(query, viewer, config).body
+
+
 def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.templates_file).write_text(

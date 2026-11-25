@@ -19,6 +19,32 @@ to the start of the record.
 
 ## Minimal examples
 
+Hosts can store each NIC's configuration together. Select a provisioning NIC
+by its name in the mapping:
+
+```yaml
+provisioning_interface: eno1
+interfaces:
+  eno1:
+    mac_address: "52:54:00:12:34:01"
+    ipv4_address: 192.0.2.21
+    ipv4_netmask: 255.255.255.0
+    ipv4_gateway: 192.0.2.1
+  eno2:
+    mac_address: "52:54:00:12:34:02"
+    ipv4_address: 198.51.100.21
+    ipv4_netmask: 255.255.255.0
+```
+
+Allowlist each reference used by a template, for example
+`interfaces.eno2.ipv4_address` for `{{ interfaces.eno2.ipv4_address }}`.
+Boot templates can use `{{ provisioning_ipv4_address }}` and
+`{{ provisioning_mac_address }}` after adding them to their allowlist.
+The selected NIC also supplies the existing `ipv4_address` and `mac_address`
+template variables for these hosts. You can omit the top-level
+`mac_addresses` and `ipv4_address` when migrating to the interface mapping.
+Each NIC requires a MAC. Static IPv4 settings require an address and netmask.
+
 To assign both a Kickstart and a boot template to a host, use
 `kickstart_template_id: rocky-ks` and `boot_template_id: rocky-boot`.
 Each ID must refer to a template with the matching `template_type`.

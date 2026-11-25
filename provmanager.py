@@ -29,6 +29,13 @@ except ImportError:  # pragma: no cover - safe plaintext fallback is tested dire
 
 PROVMANAGER_VERSION = "1.0.0"
 VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+INTERFACE_NAME_PATTERN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,14}")
+INTERFACE_FIELDS = ("mac_address", "ipv4_address", "ipv4_netmask", "ipv4_gateway")
+TEMPLATE_NAME_SYNTAX = (
+    r"[A-Za-z_][A-Za-z0-9_]*|interfaces\.[A-Za-z0-9_][A-Za-z0-9_-]{0,14}\."
+    + "(?:" + "|".join(INTERFACE_FIELDS) + ")"
+)
+TEMPLATE_NAME_PATTERN = re.compile(TEMPLATE_NAME_SYNTAX)
 TEMPLATE_SCALAR_TYPES = (str, int, float, bool)
 HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
 HOST_TEMPLATE_TYPES = {"template_id": None, "kickstart_template_id": "kickstart", "boot_template_id": "boot"}
@@ -278,7 +285,7 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
     chunks = []
     end = 0
     pending_closer = None
-    token_pattern = r"\{\{[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*\}\}|\{\{|\}\}|\{%|%\}|\{#|#\}"
+    token_pattern = r"\{\{[ \t]*(" + TEMPLATE_NAME_SYNTAX + r")[ \t]*\}\}|\{\{|\}\}|\{%|%\}|\{#|#\}"
     for match in re.finditer(token_pattern, source):
         name = match.group(1)
         if name is None or name not in allowed_names:
@@ -337,7 +344,39 @@ def _kickstart_publish_target(host: dict, config: Config) -> Optional[str]:
     return os.path.join(config.kickstart_root, short + ".cfg")
 
 
+def _host_interface(host: dict, name: Any) -> dict:
+    interfaces = host.get("interfaces")
+    if not isinstance(interfaces, dict) or not isinstance(name, str):
+        return {}
+    interface = interfaces.get(name)
+    return interface if isinstance(interface, dict) else {}
+
+
+def _interface_value(interface: dict, field: str) -> Optional[str]:
+    value = interface.get(field)
+    if field == "mac_address":
+        return _normalize_mac(value)
+    if not isinstance(value, str):
+        return None
+    try:
+        if field == "ipv4_netmask":
+            mask = ipaddress.IPv4Address(value)
+            network = ipaddress.IPv4Network(f"0.0.0.0/{mask}")
+            return str(mask) if mask == network.netmask else None
+        return str(ipaddress.IPv4Address(value))
+    except ValueError:
+        return None
+
+
 def _template_value(name: str, host: dict, values: dict, defaults: dict, installer: Optional[dict]) -> Any:
+    if name.startswith("interfaces."):
+        _, interface, field = name.split(".")
+        return _interface_value(_host_interface(host, interface), field)
+    if name == "provisioning_interface":
+        selected = host.get(name)
+        return selected if _host_interface(host, selected) else None
+    if name.startswith("provisioning_") and name[len("provisioning_"):] in INTERFACE_FIELDS:
+        return _interface_value(_host_interface(host, host.get("provisioning_interface")), name[len("provisioning_"):])
     if name in INSTALLER_TEMPLATE_PATHS:
         field = INSTALLER_TEMPLATE_PATHS[name]
         path = installer.get(field) if installer else None
@@ -349,6 +388,8 @@ def _template_value(name: str, host: dict, values: dict, defaults: dict, install
     if name == "short_hostname":
         return _short_hostname(host)
     if name == "ipv4_address":
+        if "provisioning_interface" in host:
+            return _interface_value(_host_interface(host, host.get("provisioning_interface")), name)
         address = host.get("ipv4_address")
         if not isinstance(address, str):
             return None
@@ -357,6 +398,11 @@ def _template_value(name: str, host: dict, values: dict, defaults: dict, install
         except ValueError:
             return None
     if name in ("mac_address", "mac_addresses"):
+        if isinstance(host.get("interfaces"), dict):
+            if name == "mac_address":
+                return _interface_value(_host_interface(host, host.get("provisioning_interface")), name)
+            addresses = [_interface_value(interface, "mac_address") for interface in host["interfaces"].values() if isinstance(interface, dict)]
+            return ",".join(addresses) if addresses and all(address is not None for address in addresses) else None
         addresses = host.get("mac_addresses")
         if not isinstance(addresses, list) or not addresses:
             return None
@@ -385,7 +431,7 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     values = host.get("variables", {})
     if not isinstance(allowed, list) or not isinstance(required, list) or not isinstance(defaults, dict) or not isinstance(values, dict):
         raise ValueError("Check the variable declarations on the host and template.")
-    if any(not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name) for name in allowed + required):
+    if any(not isinstance(name, str) or not TEMPLATE_NAME_PATTERN.fullmatch(name) for name in allowed + required):
         raise ValueError("Check the variable names declared on the template.")
     allowed_names = set(allowed)
     if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
@@ -446,7 +492,7 @@ def _template_variable_reference(template: Dict[str, Any]) -> str:
     if not isinstance(allowed, list) or not isinstance(required, list) or not isinstance(defaults, dict):
         return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
     names = allowed + required
-    if any(not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name) for name in names):
+    if any(not isinstance(name, str) or not TEMPLATE_NAME_PATTERN.fullmatch(name) for name in names):
         return heading + "<p>Variable declarations are invalid. See validation findings.</p>"
     allowed_names = set(allowed)
     if len(allowed_names) != len(allowed) or len(set(required)) != len(required) or (set(required) | defaults.keys()) - allowed_names:
@@ -722,9 +768,9 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
         if not _valid_hostname(host.get("hostname")):
             report("hosts", host, Finding("error", resource, "Hostname is not a valid DNS name."), "hostname")
         macs = host.get("mac_addresses", [])
-        if not isinstance(macs, list) or not macs:
+        if (not isinstance(macs, list) or not macs) and ("interfaces" not in host or "mac_addresses" in host):
             report("hosts", host, Finding("error", resource, "At least one MAC address is required."), "mac_addresses")
-        else:
+        elif isinstance(macs, list):
             for mac in macs:
                 normalized = _normalize_mac(mac)
                 if normalized is None:
@@ -751,6 +797,43 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), field)
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
+        if "interfaces" in host or "provisioning_interface" in host:
+            interfaces = host.get("interfaces")
+            selected = host.get("provisioning_interface")
+            if not isinstance(interfaces, dict) or not interfaces:
+                report("hosts", host, Finding("error", resource, "Interfaces must be a nonempty mapping."), "interfaces")
+            else:
+                if not isinstance(selected, str) or selected not in interfaces:
+                    report("hosts", host, Finding("error", resource, "Select a provisioning_interface defined in interfaces."), "provisioning_interface")
+                interface_macs = set()
+                interface_ips = set()
+                for name, interface in interfaces.items():
+                    if not isinstance(name, str) or not INTERFACE_NAME_PATTERN.fullmatch(name) or not isinstance(interface, dict):
+                        report("hosts", host, Finding("error", resource, "Each interface must have a valid name and mapping."), "interfaces")
+                        continue
+                    for field in INTERFACE_FIELDS:
+                        if field != "mac_address" and field not in interface:
+                            continue
+                        if _interface_value(interface, field) is None:
+                            report("hosts", host, Finding("error", resource, f"Interface {name} has an invalid {field}."), "interfaces")
+                    address = _interface_value(interface, "ipv4_address")
+                    mask = _interface_value(interface, "ipv4_netmask")
+                    gateway = _interface_value(interface, "ipv4_gateway")
+                    if bool(address) != bool(mask) or gateway and not (address and mask):
+                        report("hosts", host, Finding("error", resource, f"Interface {name} needs both an IPv4 address and netmask for static configuration."), "interfaces")
+                    elif gateway and ipaddress.IPv4Address(gateway) not in ipaddress.IPv4Network(f"{address}/{mask}", strict=False):
+                        report("hosts", host, Finding("error", resource, f"Interface {name} has an IPv4 gateway outside its subnet."), "interfaces")
+                    for value, local, shared, label in (
+                        (_interface_value(interface, "mac_address"), interface_macs, used_macs, "MAC address"),
+                        (address, interface_ips, used_ips, "IPv4 address"),
+                    ):
+                        if value is None:
+                            continue
+                        if value in local or host.get("enabled", True) and value in shared and shared[value] != host["id"]:
+                            report("hosts", host, Finding("error", resource, f"Interface {name} reuses a {label} already assigned to an interface or enabled host."), "interfaces")
+                        local.add(value)
+                        if host.get("enabled", True):
+                            shared.setdefault(value, host["id"])
         requires_dependencies = host.get("provisioning_state") in ("ready", "staged")
         has_typed_template = any(host.get(field) not in (None, "") for field in HOST_TEMPLATE_TYPES if field != "template_id")
         if has_typed_template and host.get("template_id") not in (None, ""):
@@ -798,17 +881,17 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
         resource = str(template.get("name") or template["id"])
         allowed_variables = template.get("allowed_variables", [])
         valid_allowlist = isinstance(allowed_variables, list) and all(
-            isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
+            isinstance(name, str) and TEMPLATE_NAME_PATTERN.fullmatch(name)
             for name in allowed_variables
         )
         if not valid_allowlist:
-            message = "allowed_variables must be a list of names using letters, digits, and underscores, starting with a letter or underscore."
+            message = "allowed_variables must be a list of identifiers or supported interfaces.<name>.<field> references."
             report("templates", template, Finding("error", resource, message), "allowed_variables")
         elif len(allowed_variables) != len(set(allowed_variables)):
             report("templates", template, Finding("error", resource, "allowed_variables contains duplicate names."), "allowed_variables")
         required_variables = template.get("required_variables", [])
         if not isinstance(required_variables, list) or any(
-            not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name)
+            not isinstance(name, str) or not TEMPLATE_NAME_PATTERN.fullmatch(name)
             for name in required_variables
         ):
             message = "required_variables must be a list of valid variable names."
@@ -903,7 +986,7 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 if isinstance(required, list) and isinstance(allowed, list) and isinstance(variables, dict) and isinstance(defaults, dict):
                     missing = sorted({
                         name for name in (*required, *template_placeholders.get(template_id, ()))
-                        if isinstance(name, str) and VARIABLE_NAME_PATTERN.fullmatch(name)
+                        if isinstance(name, str) and TEMPLATE_NAME_PATTERN.fullmatch(name)
                         and name in allowed and _template_value(name, host, variables, defaults, installer) is None
                     })
                     if missing:
@@ -1125,7 +1208,7 @@ def _inventory_preview(hosts: List[Dict[str, Any]], findings: List[Finding], sel
             query = urlencode({"action": "validate", **_validation_scope("hosts", host["id"]), "severity": "error"})
             validation_link = ' (<a href="?{}">View validation errors</a>)'.format(html.escape(query, quote=True))
         else:
-            address = host.get("ipv4_address") or host.get("ipv6_address")
+            address = _template_value("ipv4_address", host, {}, {}, None) or host.get("ipv6_address")
             included[hostname] = {"ansible_host": address} if address else {}
             for name, value in sorted(host.get("inventory_variables", {}).items()):
                 included[hostname][name] = "[redacted]" if _sensitive_key(name) else value
