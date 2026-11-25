@@ -55,6 +55,19 @@ def test_template_variable_declarations(tmp_path: Path) -> None:
     assert invalid.location.startswith("Templates, line 5, column ")
 
 
+def test_host_variable_declarations(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    _catalog(
+        Path(config.hosts_file),
+        "  - {id: a, hostname: a.example, mac_addresses: ['02:00:00:00:00:01'], variables: {site_name: lab}}\n"
+        "  - {id: b, hostname: b.example, mac_addresses: ['02:00:00:00:00:02'], variables: [lab]}\n"
+        "  - {id: c, hostname: c.example, mac_addresses: ['02:00:00:00:00:03'], variables: {site.name: lab}}\n",
+    )
+    shape, name = validate_catalogs(config)
+    assert shape.resource == "b.example" and "mapping" in shape.message
+    assert name.resource == "c.example" and name.location.startswith("Hosts, line 5, column ")
+
+
 def test_template_size_limit_counts_bytes_and_reports_source_location(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), max_template_bytes=4)
     content = Path(config.kickstart_root) / "example.ks"

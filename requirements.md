@@ -216,7 +216,7 @@ Each host record shall support:
 | `role_ids` | Ordered, deduplicated references to Ansible roles |
 | `enabled` | Whether included in active provisioning output |
 | `provisioning_state` | `unconfigured`, `ready`, `staged`, `provisioning`, `completed`, `failed`, or `disabled` |
-| `variables` | Validated host-specific provisioning variables |
+| `variables` | Optional mapping of host-scoped values keyed by case-sensitive names matching `[A-Za-z_][A-Za-z0-9_]*` |
 | `tags` | Search/filter tags |
 | `created_at`, `updated_at`, `created_by`, `updated_by` | Metadata |
 

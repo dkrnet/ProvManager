@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - safe plaintext fallback is tested dire
 
 
 PROVMANAGER_VERSION = "1.0.0"
+VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 HOST_PROVISIONING_STATES = ("unconfigured", "ready", "staged", "provisioning", "completed", "failed", "disabled")
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
@@ -394,6 +395,11 @@ def validate_catalogs(config: Config) -> List[Finding]:
     used_ips = {}
     for host in catalogs["hosts"]:
         resource = str(host.get("hostname") or host["id"])
+        variables = host.get("variables", {})
+        if not isinstance(variables, dict):
+            report("hosts", host, Finding("error", resource, "Host variables must be a mapping of names to values."), "variables")
+        elif any(not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name) for name in variables):
+            report("hosts", host, Finding("error", resource, "Host variable names must start with an ASCII letter or underscore and contain only ASCII letters, digits, or underscores."), "variables")
         if "provisioning_state" in host and host["provisioning_state"] not in HOST_PROVISIONING_STATES:
             message = "Provisioning state must be one of: " + ", ".join(HOST_PROVISIONING_STATES) + "."
             report("hosts", host, Finding("error", resource, message), "provisioning_state")
@@ -467,7 +473,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
         resource = str(template.get("name") or template["id"])
         allowed_variables = template.get("allowed_variables", [])
         if not isinstance(allowed_variables, list) or any(
-            not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", name)
+            not isinstance(name, str) or not VARIABLE_NAME_PATTERN.fullmatch(name)
             for name in allowed_variables
         ):
             message = "allowed_variables must be a list of names using letters, digits, and underscores, starting with a letter or underscore."

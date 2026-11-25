@@ -101,3 +101,5 @@ Use `allowed_variables: [site_name, disk_device]` to declare user-defined
 names for a template. Names are case-sensitive and must be unique. Use ASCII
 letters, digits, and underscores, starting with a letter or underscore.
 An omitted list allows no variables. Value scopes and precedence are pending.
+Hosts may store host-scoped values in a mapping such as
+`variables: {site_name: lab}`. Mapping keys follow the same naming rules.
