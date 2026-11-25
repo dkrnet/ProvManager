@@ -56,6 +56,19 @@ def test_validation_resource_links_to_matching_record(tmp_path: Path) -> None:
     assert b">bad_name</a>" in response.body
 
 
+def test_validation_links_to_correct_record_when_names_match(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        "  - {id: first, hostname: shared.example, mac_addresses: ['02:00:00:00:00:01']}\n"
+        "  - {id: 'second&extra', hostname: shared.example, mac_addresses: []}\n",
+        encoding="utf-8",
+    )
+    body = _request(config).body
+    assert b'?action=host_view&amp;id=second%26extra' in body
+    assert b'?action=host_view&amp;id=first' not in body
+
+
 def test_validation_filters_by_severity_and_resource(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(

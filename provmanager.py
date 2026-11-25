@@ -889,9 +889,8 @@ def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[s
 def _record_link(action: str, record: Dict[str, Any]) -> str:
     label = record.get("hostname") or record.get("name") or record["id"]
     detail_action = {"hosts": "host_view", "installers": "installer_view", "roles": "role_view", "templates": "template_view"}[action]
-    return '<a href="?action={}&amp;id={}">{}</a>'.format(
-        detail_action, html.escape(str(record["id"]), quote=True), html.escape(str(label))
-    )
+    query = urlencode({"action": detail_action, "id": record["id"]})
+    return '<a href="?{}">{}</a>'.format(html.escape(query, quote=True), html.escape(str(label)))
 
 
 def _reference_value(key: str, value: Any, catalogs: Mapping[str, List[Dict[str, Any]]]) -> Optional[str]:
@@ -991,16 +990,12 @@ def _validation_catalogs(config: Config) -> Dict[str, List[Dict[str, Any]]]:
     return catalogs
 
 
-def _finding_resource(resource: str, catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
-    for action in ("hosts", "installers", "roles", "templates"):
-        for record in catalogs[action]:
-            labels = {str(record["id"]), str(record.get("hostname", "")), str(record.get("name", ""))}
-            if resource in labels:
-                return _record_link(action, record)
-    return html.escape(resource)
-
-
 def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], catalogs: Mapping[str, List[Dict[str, Any]]]) -> str:
+    resource_links = {
+        (action, record["id"]): _record_link(action, record)
+        for action, records in catalogs.items()
+        for record in records
+    }
     selected_severity = _query_value(params, "severity").casefold()
     resource_query = _query_value(params, "resource")
     filtered = findings
@@ -1027,7 +1022,7 @@ def _findings_table(findings: List[Finding], params: Mapping[str, List[str]], ca
         '<tr><td><span class="severity severity-{}">{}</span></td><td>{}</td><td>{}</td></tr>'.format(
             finding.severity,
             html.escape(finding.severity.title()),
-            _finding_resource(finding.resource, catalogs),
+            resource_links.get((finding.catalog, finding.record_id), html.escape(finding.resource)),
             html.escape(f"{finding.message} ({finding.location})" if finding.location else finding.message),
         )
         for finding in filtered
