@@ -36,6 +36,22 @@ def test_valid_empty_catalogs_produce_information_only(tmp_path: Path) -> None:
     assert [(item.severity, item.message) for item in findings] == [("information", "No validation findings were reported.")]
 
 
+def test_template_size_limit_counts_bytes_and_reports_source_location(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), max_template_bytes=4)
+    content = Path(config.kickstart_root) / "example.ks"
+    _catalog(
+        Path(config.templates_file),
+        "  - id: setup\n    name: Setup\n    template_type: kickstart\n"
+        f"    content_path: '{content}'\n",
+    )
+    content.write_text("éé", encoding="utf-8")
+    assert [item.severity for item in validate_catalogs(config)] == ["information"]
+    content.write_text("ééé", encoding="utf-8")
+    finding, = validate_catalogs(config)
+    assert finding.message == "Template content exceeds MAX_TEMPLATE_BYTES (4 bytes)."
+    assert finding.location == "Templates, line 6, column 19"
+
+
 def test_host_state_and_ip_family_findings_point_to_fields(tmp_path: Path) -> None:
     config = _config(tmp_path)
     _catalog(

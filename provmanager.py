@@ -8,6 +8,7 @@ import ipaddress
 import os
 import pwd
 import re
+import stat
 from dataclasses import dataclass, fields, replace
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, FrozenSet, List, Mapping, Optional, Tuple
@@ -471,8 +472,16 @@ def validate_catalogs(config: Config) -> List[Finding]:
             report("templates", template, Finding("error", resource, "Template type is unsupported."), "template_type")
         elif not isinstance(path, str) or not _inside(path, root):
             report("templates", template, Finding("error", resource, "Template content path is outside its approved root."), "content_path")
-        elif not os.path.isfile(path) or not os.access(path, os.R_OK):
-            report("templates", template, Finding("error", resource, "Template content is not a readable file."), "content_path")
+        else:
+            try:
+                metadata = os.stat(path)
+            except OSError:
+                metadata = None
+            if metadata is None or not stat.S_ISREG(metadata.st_mode) or not os.access(path, os.R_OK):
+                report("templates", template, Finding("error", resource, "Template content is not a readable file."), "content_path")
+            elif metadata.st_size > config.max_template_bytes:
+                message = f"Template content exceeds MAX_TEMPLATE_BYTES ({config.max_template_bytes} bytes)."
+                report("templates", template, Finding("error", resource, message), "content_path")
 
         installer_id = template.get("installer_id")
         if installer_id and installer_id not in installers:

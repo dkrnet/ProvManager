@@ -93,3 +93,6 @@ records:
 Template `installer_id` and ordered `role_ids` entries must reference records in
 their respective catalogs. Duplicate, malformed, or missing role references are
 reported by read-only validation.
+
+Template content files may be at most `MAX_TEMPLATE_BYTES` bytes (1 MiB by
+default). Oversized files are reported at the `content_path` field.
