@@ -1120,14 +1120,14 @@ def dispatch(
             return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
         display_name = record.get("hostname") or record.get("name") or record["id"]
         detail = _record_detail(catalog_action, record, catalogs)
-        if catalog_action == "hosts" and "preview" in identity.capabilities:
-            host_findings = [
+        if "preview" in identity.capabilities:
+            record_findings = [
                 finding for finding in validate_catalogs(active)
-                if finding.catalog == "hosts" and finding.record_id == record_id
+                if finding.catalog == catalog_action and finding.record_id == record_id
             ]
-            if host_findings:
+            if record_findings:
                 items = []
-                for finding in host_findings:
+                for finding in record_findings:
                     location = f" ({finding.location})" if finding.location else ""
                     items.append("<li>{}</li>".format(html.escape(finding.message + location)))
                 detail += "<h2>Validation findings</h2><ul>{}</ul>".format("".join(items))

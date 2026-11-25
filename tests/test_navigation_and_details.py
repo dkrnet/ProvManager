@@ -4,6 +4,8 @@
 from dataclasses import replace
 from pathlib import Path
 
+import pytest
+
 from provmanager import Config, Identity, dispatch
 
 
@@ -51,6 +53,25 @@ def test_host_detail_shows_only_its_findings_to_validation_users(tmp_path: Path)
     assert b"At least one MAC address is required" not in response.body
     reader = replace(viewer, capabilities=frozenset({"hosts_read"}))
     assert b"Validation findings" not in _dispatch(action, reader, config).body
+
+
+@pytest.mark.parametrize("action, location", [
+    ("installer_view", b"Installers"),
+    ("role_view", b"Ansible Roles"),
+    ("template_view", b"Templates"),
+])
+def test_catalog_detail_shows_findings_for_its_catalog(tmp_path: Path, action: str, location: bytes) -> None:
+    config = _config(tmp_path)
+    for path in (config.installers_file, config.roles_file, config.templates_file):
+        Path(path).write_text("schema_version: 1\nrecords:\n  - {id: shared, name: Shared, enabled: 'false'}\n", encoding="utf-8")
+    reader = Identity("viewer", "Viewer", frozenset(), frozenset({"catalogs_read"}))
+    viewer = replace(reader, capabilities=reader.capabilities | {"preview"})
+    query = f"action={action}&id=shared"
+    body = _dispatch(query, viewer, config).body
+    assert b"Validation findings" in body
+    assert body.count(b"Enabled must be true or false.") == 1
+    assert b"Enabled must be true or false. (" + location + b", line 3, column" in body
+    assert b"Validation findings" not in _dispatch(query, reader, config).body
 
 
 def test_auditor_navigation_includes_settings_and_audit(tmp_path: Path) -> None:
