@@ -381,6 +381,7 @@ All pages described below shall share the presentation, authorization, error, ca
 - Resolve the reserved allowlisted name `short_hostname` from the host's top-level hostname before the first period, or from the entire hostname if it contains no period.
 - Resolve allowlisted `installer_kernel_path`, `installer_initrd_path`, and `installer_efi_path` from the host's selected installer. Preserve the stored TFTP-relative paths. These names are reserved for installer data, and an unavailable path counts as missing.
 - Installers may declare `kickstart_path` (a local path without parent traversal or a credential-free HTTP(S) URL without a fragment) and `stage2_path` (a rescue boot locator). Both values must be nonempty strings without whitespace or control characters. Expose them as reserved `installer_kickstart_path` and `installer_stage2_path` variables when allowlisted. Validate syntax without reading or fetching the targets.
+- A Kickstart retrieval locator may contain the `{{ short_hostname }}` placeholder. Resolve it per host before boot template substitution. The combined boot and Kickstart preview shall show both rendered outputs, the resolved retrieval locator, and the proposed local target `KICKSTART_ROOT/<short_hostname>.cfg`. Report filename collisions among enabled hosts assigned Kickstart templates.
 - Disabled or referenced templates shall follow the same dependency and edit-conflict rules as other catalogs.
 
 ## Operations Dashboard — `action=operations`

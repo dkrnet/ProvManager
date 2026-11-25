@@ -50,6 +50,14 @@ path instead. Allowlist `installer_kickstart_path` and
 `installer_stage2_path` to use them in a boot template. The values are inserted
 as stored, so the template supplies any boot option or device prefix required
 by the target. Catalog validation checks syntax without opening the targets.
+
+For per-host Kickstart retrieval, set an installer pattern such as
+`kickstart_path: 'http://provisioning.example.com/kickstart/{{ short_hostname }}.cfg'`.
+For `build01.example.com`, **Preview boot and Kickstart** shows the resolved
+URL and the proposed local file `build01.cfg` under `KICKSTART_ROOT`.
+Configure the HTTP server separately to serve that directory. Literal
+retrieval locations also work for shared Kickstart files. Validation flags
+publish filename collisions among enabled hosts assigned Kickstart templates.
 The inventory preview can filter hosts by one assigned group. Included hosts
 retain all their group memberships in the filtered YAML.
 

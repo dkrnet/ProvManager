@@ -39,6 +39,7 @@ INSTALLER_TEMPLATE_PATHS = {
     "installer_kickstart_path": "kickstart_path",
     "installer_stage2_path": "stage2_path",
 }
+KICKSTART_HOST_PLACEHOLDER = re.compile(r"\{\{[ \t]*short_hostname[ \t]*\}\}")
 PUBLIC_ACTIONS = frozenset({"login", "login_failed", "logged_out", "auth_error", "favicon"})
 
 ROLE_CAPABILITIES = {
@@ -61,6 +62,7 @@ ACTION_CAPABILITIES = {
     "operations": "operations_read",
     "preview": "preview",
     "template_preview": "preview",
+    "boot_kickstart_preview": "preview",
     "validate": "preview",
     "generate_submit": "generate",
     "apply": "apply",
@@ -309,18 +311,43 @@ def _checked_template_chunks(source: str, allowed_names: set, issues: Optional[L
     return chunks
 
 
+def _short_hostname(host: dict) -> Optional[str]:
+    hostname = host.get("hostname")
+    if isinstance(hostname, str) and hostname.strip():
+        return hostname.partition(".")[0] or None
+    return None
+
+
+def _resolve_kickstart_locator(pattern: Any, host: dict) -> Optional[str]:
+    if not isinstance(pattern, str) or _installer_locator_error("kickstart_path", pattern):
+        return None
+    if not KICKSTART_HOST_PLACEHOLDER.search(pattern):
+        return pattern
+    short = _short_hostname(host)
+    if not short or not _valid_hostname(host.get("hostname")):
+        return None
+    resolved = KICKSTART_HOST_PLACEHOLDER.sub(short, pattern)
+    return resolved if not _installer_locator_error("kickstart_path", resolved) else None
+
+
+def _kickstart_publish_target(host: dict, config: Config) -> Optional[str]:
+    short = _short_hostname(host)
+    if not short or not _valid_hostname(host.get("hostname")):
+        return None
+    return os.path.join(config.kickstart_root, short + ".cfg")
+
+
 def _template_value(name: str, host: dict, values: dict, defaults: dict, installer: Optional[dict]) -> Any:
     if name in INSTALLER_TEMPLATE_PATHS:
         field = INSTALLER_TEMPLATE_PATHS[name]
         path = installer.get(field) if installer else None
-        if field in ("kickstart_path", "stage2_path") and _installer_locator_error(field, path):
+        if field == "kickstart_path":
+            return _resolve_kickstart_locator(path, host)
+        if field == "stage2_path" and _installer_locator_error(field, path):
             return None
         return path if isinstance(path, str) and path.strip() else None
     if name == "short_hostname":
-        hostname = host.get("hostname")
-        if isinstance(hostname, str) and hostname.strip():
-            return hostname.partition(".")[0] or None
-        return None
+        return _short_hostname(host)
     if name in values:
         return values[name]
     if name == "hostname":
@@ -492,6 +519,10 @@ def _network_source_findings(resource: str, value: Any) -> List[Finding]:
 
 
 def _installer_locator_error(field: str, value: Any) -> Optional[str]:
+    if field == "kickstart_path" and isinstance(value, str):
+        value = KICKSTART_HOST_PLACEHOLDER.sub("host", value)
+        if any(character in value for character in "{}"):
+            return "kickstart_path supports only the {{ short_hostname }} placeholder."
     if not isinstance(value, str) or not value or any(
         character.isspace() or ord(character) < 32 or ord(character) == 127 for character in value
     ):
@@ -894,6 +925,22 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 and index[reference].get("enabled", True) is not False
             ):
                 report("hosts", host, Finding("warning", resource, f"The selected {label} has validation warnings."), field)
+    publish_targets = {}
+    for host in catalogs["hosts"]:
+        if host.get("enabled", True) is False:
+            continue
+        typed = host.get("kickstart_template_id")
+        legacy = host.get("template_id")
+        has_kickstart = isinstance(typed, str) and bool(typed)
+        if not has_kickstart and isinstance(legacy, str):
+            has_kickstart = templates.get(legacy, {}).get("template_type") == "kickstart"
+        target = _kickstart_publish_target(host, config) if has_kickstart else None
+        if target:
+            publish_targets.setdefault(target.casefold(), []).append(host)
+    for hosts in publish_targets.values():
+        if len(hosts) > 1:
+            for host in hosts:
+                report("hosts", host, Finding("error", str(host["hostname"]), "Kickstart publish filename conflicts with another enabled host."), "hostname")
     if not findings:
         findings.append(Finding("information", "Catalogs", "No validation findings were reported."))
     return catalogs, findings
@@ -1546,6 +1593,9 @@ def dispatch(
         detail = _record_detail(catalog_action, record, catalogs)
         if can_validate:
             if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
+                if all(isinstance(record.get(field), str) and record[field] for field in ("boot_template_id", "kickstart_template_id")):
+                    combined_query = urlencode({"action": "boot_kickstart_preview", "host_id": record_id})
+                    detail += '<p><a href="?{}">Preview boot and Kickstart</a></p>'.format(html.escape(combined_query, quote=True))
                 for field, kind in HOST_TEMPLATE_TYPES.items():
                     template_id = record.get(field)
                     if isinstance(template_id, str) and template_id:
@@ -1587,6 +1637,54 @@ def dispatch(
         if host_error:
             return _html_response(title, f"<p>{html.escape(host_error.message)}</p>", "500 Internal Server Error", public=False, identity=identity, config=active)
         content = _inventory_preview(catalogs["hosts"], findings, _query_value(params, "group"))
+        return _html_response(title, content, public=False, identity=identity, config=active)
+    if action == "boot_kickstart_preview":
+        title = "Boot and Kickstart preview"
+        if not {"hosts_read", "catalogs_read"}.issubset(identity.capabilities):
+            return _html_response(title, "<p>Host and catalog read access are required.</p>", "403 Forbidden", public=False, identity=identity, config=active)
+        host_id = _query_value(params, "host_id")
+        if not host_id:
+            return _html_response(title, "<p>Select a host.</p>", "400 Bad Request", public=False, identity=identity, config=active)
+        catalogs, findings = _validated_catalog_snapshot(active)
+        if any(not finding.catalog and finding.severity == "error" for finding in findings):
+            return _html_response(title, '<p>A catalog could not be loaded. <a href="?action=validate">Open Validation</a>.</p>', "500 Internal Server Error", public=False, identity=identity, config=active)
+        host = next((record for record in catalogs["hosts"] if record["id"] == host_id), None)
+        if host is None:
+            return _html_response(title, "<p>The host was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
+        installer = next((record for record in catalogs["installers"] if record["id"] == host.get("installer_id")), None)
+        target = _kickstart_publish_target(host, active)
+        locator = _resolve_kickstart_locator(installer.get("kickstart_path"), host) if installer else None
+        content = (
+            f"<p>Read-only preview for {_record_link('hosts', host)}.</p>"
+            f"<dl><dt>Local Kickstart publish target</dt><dd><code>{html.escape(target or 'Unavailable')}</code></dd>"
+            f"<dt>Installer Kickstart retrieval location</dt><dd><code>{html.escape(locator or 'Unavailable')}</code></dd></dl>"
+        )
+        errors = [
+            finding.message for finding in findings
+            if finding.catalog == "hosts" and finding.record_id == host_id and finding.severity == "error"
+        ]
+        if not locator:
+            errors.append("The selected installer does not supply a usable Kickstart retrieval location.")
+        if errors:
+            content += "<h2>Blocking findings</h2><ul>" + "".join(f"<li>{html.escape(message)}</li>" for message in errors) + "</ul>"
+        for field, kind, label in (
+            ("boot_template_id", "boot", "Boot output"),
+            ("kickstart_template_id", "kickstart", "Kickstart output"),
+        ):
+            content += f"<h2>{label}</h2>"
+            template = next((record for record in catalogs["templates"] if record["id"] == host.get(field)), None)
+            if not template or template.get("template_type") != kind:
+                content += f"<p>Select a valid {kind} template for this host.</p>"
+                continue
+            source = _read_template_source(template, active)
+            try:
+                if source is None:
+                    raise ValueError("Template source is unavailable.")
+                rendered = _render_template_preview(source, host, template, active.max_template_bytes, installer)
+            except ValueError as error:
+                content += f"<p>{html.escape(str(error))}</p>"
+            else:
+                content += f"<pre>{html.escape(rendered)}</pre>"
         return _html_response(title, content, public=False, identity=identity, config=active)
     if action == "template_preview":
         title = "Rendered template preview"

@@ -220,6 +220,29 @@ def test_host_can_preview_both_typed_templates(tmp_path: Path, hostname: str) ->
             f"action=template_view&id={template_id}", viewer, config,
         ).body
     installer_catalog = Path(config.installers_file)
+    original_installer = installer_catalog.read_text(encoding="utf-8")
+    installer_catalog.write_text(
+        original_installer.replace("https://install.example/setup.ks", "http://provisioning.example/kickstart/{{ short_hostname }}.cfg"),
+        encoding="utf-8",
+    )
+    combined_query = "action=boot_kickstart_preview&host_id=host"
+    assert b"Preview boot and Kickstart" in body
+    combined = _dispatch(combined_query, viewer, config)
+    target = tmp_path / "host.cfg"
+    assert combined.status == "200 OK"
+    assert str(target).encode() in combined.body
+    assert b"inst.ks=http://provisioning.example/kickstart/host.cfg" in combined.body
+    assert b"<pre># Kickstart preview</pre>" in combined.body
+    assert not target.exists()
+    assert _dispatch(combined_query, replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
+    original_hosts = Path(config.hosts_file).read_text(encoding="utf-8")
+    Path(config.hosts_file).write_text(
+        original_hosts.rstrip()[:-1] + ", {id: other, hostname: host.other.example, kickstart_template_id: ks}]\n",
+        encoding="utf-8",
+    )
+    assert b"Kickstart publish filename conflicts" in _dispatch(combined_query, viewer, config).body
+    Path(config.hosts_file).write_text(original_hosts, encoding="utf-8")
+    installer_catalog.write_text(original_installer, encoding="utf-8")
     installer_catalog.write_text(installer_catalog.read_text(encoding="utf-8").replace("https://install.example/setup.ks", "/ks/setup.ks"), encoding="utf-8")
     assert b"inst.ks=/ks/setup.ks inst.stage2=https://install.example/rescue/" in _dispatch(
         "action=template_preview&host_id=host&template_id=boot", viewer, config,
