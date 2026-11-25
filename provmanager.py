@@ -306,6 +306,28 @@ def _render_template_preview(source: str, host: dict, template: dict, limit: int
     return "".join(chunks)
 
 
+def _template_preview_selector(template_id: str, hosts: List[Dict[str, Any]]) -> str:
+    heading = "<h2>Rendered preview</h2>"
+    associated = [host for host in hosts if host.get("template_id") == template_id]
+    if not associated:
+        return heading + "<p>No hosts select this template.</p>"
+    options = "".join(
+        '<option value="{}">{}</option>'.format(
+            html.escape(host["id"], quote=True),
+            html.escape(str(host.get("hostname") or host["id"])),
+        )
+        for host in associated
+    )
+    return heading + (
+        '<form method="get"><input type="hidden" name="action" value="template_preview">'
+        '<input type="hidden" name="template_id" value="{}">'
+        '<label for="preview-host">Host</label>'
+        '<select id="preview-host" name="host_id" required>'
+        '<option value="">Select a host</option>{}</select> '
+        '<button type="submit">Preview template</button></form>'
+    ).format(html.escape(template_id, quote=True), options)
+
+
 def _template_variable_reference(template: Dict[str, Any]) -> str:
     heading = "<h2>Template variables</h2>"
     allowed = template.get("allowed_variables", [])
@@ -1267,6 +1289,8 @@ def dispatch(
         detail = _record_detail(catalog_action, record, catalogs)
         if "preview" in identity.capabilities:
             if catalog_action == "templates":
+                if "hosts_read" in identity.capabilities:
+                    detail += _template_preview_selector(record_id, catalogs["hosts"])
                 detail += _template_variable_reference(record)
                 detail += _template_source_preview(record, active)
             if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
