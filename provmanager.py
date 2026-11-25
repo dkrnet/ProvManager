@@ -1349,9 +1349,12 @@ def dispatch(
             for finding in validate_catalogs(active):
                 if finding.catalog == action:
                     finding_counts[finding.record_id] = finding_counts.get(finding.record_id, 0) + 1
+        content = _catalog_table(action, records, params, active, finding_counts)
+        if action == "roles" and {"preview", "hosts_read"}.issubset(identity.capabilities):
+            content = '<p><a href="?action=preview">Inventory preview</a></p>' + content
         return _html_response(
             title,
-            _catalog_table(action, records, params, active, finding_counts),
+            content,
             public=False,
             identity=identity,
             config=active,

@@ -36,6 +36,16 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     assert b">Audit Log</a>" not in response.body
 
 
+def test_roles_list_offers_inventory_preview_to_authorized_users(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
+    link = b'<p><a href="?action=preview">Inventory preview</a></p>'
+    body = _dispatch("action=roles", viewer, config).body
+    assert body.index(link) < body.index(b"<table")
+    reader = replace(viewer, capabilities=viewer.capabilities - {"hosts_read"})
+    assert link not in _dispatch("action=roles", reader, config).body
+
+
 def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Path, monkeypatch) -> None:
     config = replace(_config(tmp_path), inventory_output_file=str(tmp_path / "inventory.yml"))
     Path(config.hosts_file).write_text(
