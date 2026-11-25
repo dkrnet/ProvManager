@@ -77,8 +77,11 @@ def test_inventory_preview_filters_hosts_and_keeps_output_untouched(tmp_path: Pa
     assert _dispatch("action=preview", replace(viewer, capabilities=frozenset({"preview"})), config).status.startswith("403")
 
 
-@pytest.mark.parametrize("query", ["action=preview", "action=validate", "action=validate&host_id=only"])
-def test_preview_and_validation_read_each_catalog_once(tmp_path: Path, monkeypatch, query: str) -> None:
+@pytest.mark.parametrize("query", [
+    "action=preview", "action=validate", "action=validate&host_id=only",
+    "action=hosts", "action=host_view&id=only",
+])
+def test_catalog_views_with_validation_read_each_catalog_once(tmp_path: Path, monkeypatch, query: str) -> None:
     config = _config(tmp_path)
     Path(config.hosts_file).write_text(
         "schema_version: 1\nrecords: [{id: only, hostname: only.example, mac_addresses: ['02:00:00:00:00:01']}]\n",

@@ -1334,15 +1334,23 @@ def dispatch(
         return _html_response("Forbidden", "<p>You do not have permission to perform this action.</p>", "403 Forbidden", public=False, identity=identity, config=active)
     if action in CATALOG_ACTIONS:
         title, path_field, _sort_field, _columns = CATALOG_ACTIONS[action]
+        can_validate = "preview" in identity.capabilities
         try:
-            records = load_catalog(getattr(active, path_field))
+            if can_validate:
+                catalogs, findings = _validated_catalog_snapshot(active)
+                for finding in findings:
+                    if not finding.catalog and finding.resource == title and finding.severity == "error":
+                        raise CatalogError(finding.message)
+                records = catalogs[action]
+            else:
+                records = load_catalog(getattr(active, path_field))
         except CatalogError as error:
             content = "<p>{}</p>".format(html.escape(str(error)))
             return _html_response(title, content, "500 Internal Server Error", public=False, identity=identity, config=active)
         finding_counts = None
-        if "preview" in identity.capabilities:
+        if can_validate:
             finding_counts = {}
-            for finding in validate_catalogs(active):
+            for finding in findings:
                 if finding.catalog == action:
                     finding_counts[finding.record_id] = finding_counts.get(finding.record_id, 0) + 1
         content = _catalog_table(action, records, params, active, finding_counts)
@@ -1362,11 +1370,18 @@ def dispatch(
         record_id = params.get("id", [""])[0]
         if not record_id:
             return _html_response("Invalid request", "<p>A record ID is required.</p>", "400 Bad Request", public=False, identity=identity, config=active)
+        can_validate = "preview" in identity.capabilities
         try:
-            catalogs = {
-                catalog_name: load_catalog(getattr(active, catalog_definition[1]))
-                for catalog_name, catalog_definition in CATALOG_ACTIONS.items()
-            }
+            if can_validate:
+                catalogs, findings = _validated_catalog_snapshot(active)
+                for finding in findings:
+                    if not finding.catalog and finding.severity == "error":
+                        raise CatalogError(finding.message)
+            else:
+                catalogs = {
+                    catalog_name: load_catalog(getattr(active, catalog_definition[1]))
+                    for catalog_name, catalog_definition in CATALOG_ACTIONS.items()
+                }
             records = catalogs[catalog_action]
         except CatalogError as error:
             return _html_response(singular_title, "<p>{}</p>".format(html.escape(str(error))), "500 Internal Server Error", public=False, identity=identity, config=active)
@@ -1375,7 +1390,7 @@ def dispatch(
             return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
         display_name = record.get("hostname") or record.get("name") or record["id"]
         detail = _record_detail(catalog_action, record, catalogs)
-        if "preview" in identity.capabilities:
+        if can_validate:
             if catalog_action == "hosts" and "catalogs_read" in identity.capabilities:
                 template_id = record.get("template_id")
                 if isinstance(template_id, str) and template_id:
@@ -1386,7 +1401,7 @@ def dispatch(
                 html.escape(query, quote=True), html.escape(singular_title.lower())
             )
             record_findings = [
-                finding for finding in validate_catalogs(active)
+                finding for finding in findings
                 if finding.catalog == catalog_action and finding.record_id == record_id
             ]
             if record_findings:
