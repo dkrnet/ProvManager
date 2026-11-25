@@ -261,6 +261,7 @@ Each template record shall support `id`, `name`, `description`, `template_type`,
 - Template bodies are source content, not Markdown descriptions; they must be displayed/edited as escaped plaintext with monospace formatting.
 - Rendering shall substitute only an allowlisted set of variables and shall never execute arbitrary Python, shell, Jinja expressions with unsafe functions, or filesystem access.
 - Template records may declare user-defined names in `allowed_variables`, a case-sensitive list of unique identifiers matching `[A-Za-z_][A-Za-z0-9_]*`. Omission means an empty allowlist. The allowlist applies to that template and does not define where values come from or which scope takes precedence.
+- Templates may declare `variable_defaults` as a mapping of template-scoped fallback values. Every key must appear in that template's `allowed_variables`.
 - Missing required variables, invalid references, duplicate generated target paths, and malformed rendered output shall block staging/apply.
 - Editing a template shall not automatically overwrite previously deployed files. A preview and explicit apply are required.
 

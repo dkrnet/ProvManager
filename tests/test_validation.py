@@ -68,6 +68,23 @@ def test_host_variable_declarations(tmp_path: Path) -> None:
     assert name.resource == "c.example" and name.location.startswith("Hosts, line 5, column ")
 
 
+def test_template_variable_defaults_require_an_allowlisted_mapping(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    content = Path(config.kickstart_root) / "setup.ks"
+    content.touch()
+    common = f"template_type: kickstart, content_path: '{content}', allowed_variables: [site_name]"
+    _catalog(
+        Path(config.templates_file),
+        f"  - {{id: a, name: Valid, {common}, variable_defaults: {{site_name: lab}}}}\n"
+        f"  - {{id: b, name: Wrong shape, {common}, variable_defaults: [lab]}}\n"
+        f"  - {{id: c, name: Undeclared, {common}, variable_defaults: {{other: lab}}}}\n",
+    )
+    shape, undeclared = validate_catalogs(config)
+    assert shape.resource == "Wrong shape" and "mapping" in shape.message
+    assert undeclared.resource == "Undeclared" and "allowed_variables" in undeclared.message
+    assert undeclared.location.startswith("Templates, line 5, column ")
+
+
 def test_template_size_limit_counts_bytes_and_reports_source_location(tmp_path: Path) -> None:
     config = replace(_config(tmp_path), max_template_bytes=4)
     content = Path(config.kickstart_root) / "example.ks"
