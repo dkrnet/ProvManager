@@ -101,6 +101,22 @@ def test_ready_host_requires_values_for_placeholders_used_in_source(tmp_path: Pa
     assert not any("must have a scalar value" in item.message for item in validate_catalogs(config))
 
 
+def test_template_reports_non_scalar_defaults_without_a_host(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    source = Path(config.kickstart_root) / "setup.ks"
+    source.write_text("{{ site }} {{ count }}", encoding="utf-8")
+    _catalog(
+        Path(config.templates_file),
+        "  - id: setup\n    name: Setup\n    template_type: kickstart\n"
+        f"    content_path: '{source}'\n"
+        "    allowed_variables: [site, count]\n"
+        "    variable_defaults: {site: [lab], count: 0}\n",
+    )
+    finding, = validate_catalogs(config)
+    assert finding.message == "Default for template variable site must have a scalar value."
+    assert finding.location == "Templates, line 8, column 24"
+
+
 def test_required_template_variables_must_be_unique_allowlisted_names(tmp_path: Path) -> None:
     config = _config(tmp_path)
     content = Path(config.kickstart_root) / "setup.ks"

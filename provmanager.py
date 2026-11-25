@@ -692,6 +692,13 @@ def validate_catalogs(config: Config) -> List[Finding]:
                         template_placeholders[template["id"]] = set(chunks[1::2])
                     except ValueError as error:
                         report("templates", template, Finding("error", resource, str(error)), "content_path")
+                    else:
+                        if isinstance(defaults, dict):
+                            for name in sorted(template_placeholders[template["id"]]):
+                                value = defaults.get(name)
+                                if value is not None and not isinstance(value, TEMPLATE_SCALAR_TYPES):
+                                    message = f"Default for template variable {name} must have a scalar value."
+                                    report("templates", template, Finding("error", resource, message), "variable_defaults")
 
         installer_id = template.get("installer_id")
         if installer_id and installer_id not in installers:
