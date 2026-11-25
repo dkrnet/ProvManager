@@ -48,6 +48,14 @@ template variables for these hosts. You can omit the top-level
 `mac_addresses` and `ipv4_address` when migrating to the interface mapping.
 Each NIC requires a MAC. Static IPv4 settings require an address and netmask.
 
+To reuse a template when NIC names vary, map logical network names to NICs in
+each host record. For example, `network_interfaces: {provisioning: eno1, storage: eno2}`
+maps storage to `eno2`. With `networks` in the template's allowlist,
+`{{ networks.storage.interface }}` renders `eno2` and
+`{{ networks.storage.ipv4_address }}` reads that NIC's IPv4 address.
+The same template works on another host whose `storage` alias points to
+`enp5s0`. Individual dotted references can also be allowlisted.
+
 To assign both a Kickstart and a boot template to a host, use
 `kickstart_template_id: rocky-ks` and `boot_template_id: rocky-boot`.
 Each ID must refer to a template with the matching `template_type`.

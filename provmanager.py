@@ -29,11 +29,13 @@ except ImportError:  # pragma: no cover - safe plaintext fallback is tested dire
 
 PROVMANAGER_VERSION = "1.0.0"
 VARIABLE_NAME_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-INTERFACE_NAME_PATTERN = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]{0,14}")
+INTERFACE_NAME_SYNTAX = r"[A-Za-z0-9_][A-Za-z0-9_-]{0,14}"
+INTERFACE_NAME_PATTERN = re.compile(INTERFACE_NAME_SYNTAX)
 INTERFACE_FIELDS = ("mac_address", "ipv4_address", "ipv4_netmask", "ipv4_gateway")
 TEMPLATE_NAME_SYNTAX = (
-    r"[A-Za-z_][A-Za-z0-9_]*|interfaces\.[A-Za-z0-9_][A-Za-z0-9_-]{0,14}\."
-    + "(?:" + "|".join(INTERFACE_FIELDS) + ")"
+    r"[A-Za-z_][A-Za-z0-9_]*|interfaces\." + INTERFACE_NAME_SYNTAX
+    + r"\.(?:" + "|".join(INTERFACE_FIELDS) + ")"
+    + r"|networks\.[A-Za-z_][A-Za-z0-9_]*\.(?:" + "|".join(("interface", *INTERFACE_FIELDS)) + ")"
 )
 TEMPLATE_NAME_PATTERN = re.compile(TEMPLATE_NAME_SYNTAX)
 TEMPLATE_SCALAR_TYPES = (str, int, float, bool)
@@ -282,11 +284,14 @@ def _template_source_preview(template: Dict[str, Any], config: Config) -> str:
 
 
 def _template_name_allowed(name: Any, allowed_names) -> bool:
-    return name in allowed_names or (
-        "interfaces" in allowed_names
-        and isinstance(name, str)
-        and name.startswith("interfaces.")
-        and TEMPLATE_NAME_PATTERN.fullmatch(name) is not None
+    if name in allowed_names:
+        return True
+    if not isinstance(name, str):
+        return False
+    namespace, separator, _ = name.partition(".")
+    return (
+        bool(separator) and namespace in {"interfaces", "networks"}
+        and namespace in allowed_names and TEMPLATE_NAME_PATTERN.fullmatch(name) is not None
     )
 
 
@@ -378,6 +383,16 @@ def _interface_value(interface: dict, field: str) -> Optional[str]:
 
 
 def _template_value(name: str, host: dict, values: dict, defaults: dict, installer: Optional[dict]) -> Any:
+    if name.startswith("networks."):
+        _, alias, field = name.split(".")
+        aliases = host.get("network_interfaces")
+        selected = aliases.get(alias) if isinstance(aliases, dict) else None
+        if not isinstance(selected, str) or not INTERFACE_NAME_PATTERN.fullmatch(selected):
+            return None
+        interface = _host_interface(host, selected)
+        if not interface:
+            return None
+        return selected if field == "interface" else _interface_value(interface, field)
     if name.startswith("interfaces."):
         _, interface, field = name.split(".")
         return _interface_value(_host_interface(host, interface), field)
@@ -811,6 +826,20 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
                 report("hosts", host, Finding("error", resource, "An IP address is already used by another enabled host."), field)
             elif host.get("enabled", True):
                 used_ips[parsed] = host["id"]
+        if "network_interfaces" in host:
+            aliases = host["network_interfaces"]
+            if not isinstance(aliases, dict):
+                report("hosts", host, Finding("error", resource, "Network interfaces must be a mapping of network names to NIC names."), "network_interfaces")
+            else:
+                interfaces = host.get("interfaces")
+                for alias, nic in aliases.items():
+                    if not isinstance(alias, str) or not VARIABLE_NAME_PATTERN.fullmatch(alias):
+                        message = "Network interface aliases must be valid variable identifiers."
+                    elif not isinstance(nic, str) or not isinstance(interfaces, dict) or nic not in interfaces:
+                        message = f"Network {alias} must reference an interface defined on this host."
+                    else:
+                        continue
+                    report("hosts", host, Finding("error", resource, message), "network_interfaces")
         if "interfaces" in host or "provisioning_interface" in host:
             interfaces = host.get("interfaces")
             selected = host.get("provisioning_interface")
@@ -899,7 +928,7 @@ def _validated_catalog_snapshot(config: Config) -> Tuple[Dict[str, List[Dict[str
             for name in allowed_variables
         )
         if not valid_allowlist:
-            message = "allowed_variables must be a list of identifiers or supported interfaces.<name>.<field> references."
+            message = "allowed_variables must be a list of identifiers or supported dotted interface or network references."
             report("templates", template, Finding("error", resource, message), "allowed_variables")
         elif len(allowed_variables) != len(set(allowed_variables)):
             report("templates", template, Finding("error", resource, "allowed_variables contains duplicate names."), "allowed_variables")

@@ -303,6 +303,41 @@ def test_template_preview_resolves_individual_and_provisioning_interface_fields(
     assert b"Missing required template variables: interfaces.eno2.ipv4_address." in _dispatch(query, viewer, config).body
 
 
+def test_template_resolves_network_aliases_per_host(tmp_path: Path) -> None:
+    config = replace(_config(tmp_path), kickstart_root=str(tmp_path), tftp_root=str(tmp_path))
+    hosts = Path(config.hosts_file)
+    host_yaml = (
+        "schema_version: 1\nrecords:\n"
+        "  - {id: one, hostname: one.example, provisioning_interface: eno1, network_interfaces: {storage: eno1}, "
+        "interfaces: {eno1: {mac_address: '02:00:00:00:00:01', ipv4_address: 192.0.2.10, ipv4_netmask: 255.255.255.0}}}\n"
+        "  - {id: two, hostname: two.example, provisioning_interface: enp5s0, network_interfaces: {storage: enp5s0}, "
+        "interfaces: {enp5s0: {mac_address: '02:00:00:00:00:02', ipv4_address: 192.0.2.11, ipv4_netmask: 255.255.255.0}}}\n"
+    )
+    hosts.write_text(host_yaml, encoding="utf-8")
+    source = tmp_path / "network.txt"
+    source.write_text("{{ networks.storage.interface }} {{ networks.storage.ipv4_address }}", encoding="utf-8")
+    Path(config.templates_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        f"  - {{id: ks, name: Kickstart, template_type: kickstart, content_path: '{source}', allowed_variables: [networks]}}\n"
+        f"  - {{id: boot, name: Boot, template_type: boot, content_path: '{source}', "
+        "allowed_variables: [networks.storage.interface, networks.storage.ipv4_address]}\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "catalogs_read", "preview"}))
+    for template in ("ks", "boot"):
+        for host, expected in (("one", b"eno1 192.0.2.10"), ("two", b"enp5s0 192.0.2.11")):
+            preview = _dispatch(f"action=template_preview&host_id={host}&template_id={template}", viewer, config)
+            assert b"<pre>" + expected + b"</pre>" in preview.body
+    assert b"No validation findings" in _dispatch("action=validate", viewer, config).body
+    hosts.write_text(host_yaml.replace("storage: eno1", "storage: absent"), encoding="utf-8")
+    assert b"Network storage must reference an interface defined on this host." in _dispatch(
+        "action=validate&host_id=one", viewer, config,
+    ).body
+    assert b"Template variable networks.storage.interface has no value." in _dispatch(
+        "action=template_preview&host_id=one&template_id=ks", viewer, config,
+    ).body
+
+
 def test_template_detail_offers_preview_for_associated_hosts(tmp_path: Path) -> None:
     config = _config(tmp_path)
     Path(config.templates_file).write_text(
