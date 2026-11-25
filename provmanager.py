@@ -143,6 +143,8 @@ class Finding:
     resource: str
     message: str
     location: str = ""
+    catalog: str = ""
+    record_id: str = ""
 
 
 def _yaml_fields(node):
@@ -347,6 +349,7 @@ def validate_catalogs(config: Config) -> List[Finding]:
     invalid_records = {action: set() for action in CATALOG_ACTIONS}
 
     def report(action, record, finding, field=None):
+        finding = replace(finding, catalog=action, record_id=record["id"])
         if finding.severity == "error":
             invalid_records[action].add(record["id"])
         marks = locations[action].get(record["id"], {})
@@ -1116,9 +1119,21 @@ def dispatch(
         if record is None:
             return _html_response("Not found", "<p>The requested record was not found.</p>", "404 Not Found", public=False, identity=identity, config=active)
         display_name = record.get("hostname") or record.get("name") or record["id"]
+        detail = _record_detail(catalog_action, record, catalogs)
+        if catalog_action == "hosts" and "preview" in identity.capabilities:
+            host_findings = [
+                finding for finding in validate_catalogs(active)
+                if finding.catalog == "hosts" and finding.record_id == record_id
+            ]
+            if host_findings:
+                items = []
+                for finding in host_findings:
+                    location = f" ({finding.location})" if finding.location else ""
+                    items.append("<li>{}</li>".format(html.escape(finding.message + location)))
+                detail += "<h2>Validation findings</h2><ul>{}</ul>".format("".join(items))
         return _html_response(
             "{}: {}".format(singular_title, display_name),
-            _record_detail(catalog_action, record, catalogs),
+            detail,
             public=False,
             identity=identity,
             config=active,

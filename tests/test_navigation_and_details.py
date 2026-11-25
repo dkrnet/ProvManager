@@ -34,6 +34,25 @@ def test_viewer_navigation_excludes_privileged_destinations(tmp_path: Path) -> N
     assert b">Audit Log</a>" not in response.body
 
 
+def test_host_detail_shows_only_its_findings_to_validation_users(tmp_path: Path) -> None:
+    config = _config(tmp_path)
+    Path(config.hosts_file).write_text(
+        "schema_version: 1\nrecords:\n"
+        "  - {id: first, hostname: shared.example, mac_addresses: ['02:00:00:00:00:01'], provisioning_state: unknown}\n"
+        "  - {id: second, hostname: shared.example, mac_addresses: []}\n",
+        encoding="utf-8",
+    )
+    viewer = Identity("viewer", "Viewer", frozenset(), frozenset({"hosts_read", "preview"}))
+    action = "action=host_view&id=first"
+    response = _dispatch(action, viewer, config)
+    assert b"Validation findings" in response.body
+    assert b"Provisioning state must be one of" in response.body
+    assert b"Hosts, line 3, column" in response.body
+    assert b"At least one MAC address is required" not in response.body
+    reader = replace(viewer, capabilities=frozenset({"hosts_read"}))
+    assert b"Validation findings" not in _dispatch(action, reader, config).body
+
+
 def test_auditor_navigation_includes_settings_and_audit(tmp_path: Path) -> None:
     config = _config(tmp_path)
     auditor = Identity("auditor", "Auditor", frozenset(), frozenset({"hosts_read", "catalogs_read", "settings_read", "audit_read"}))
