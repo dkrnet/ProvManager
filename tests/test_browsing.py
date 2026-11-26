@@ -48,6 +48,24 @@ def test_validation_sort_orders_by_finding_count_before_paging(tmp_path: Path) -
     assert b'sort=validation&amp;direction=desc">Validation</a>' in ascending
 
 
+def test_hosts_list_uses_provisioning_interface_addresses(tmp_path: Path) -> None:
+    config = _config(
+        tmp_path,
+        "  - {id: a, hostname: alpha.example, provisioning_interface: eno1, interfaces: {"
+        "eno1: {mac_address: '02:00:00:00:00:02', ipv4_address: 192.0.2.20}, "
+        "eno2: {mac_address: '02:00:00:00:00:03', ipv4_address: 198.51.100.20}}}\n"
+        "  - {id: b, hostname: beta.example, ipv4_address: 192.0.2.10, mac_addresses: ['02:00:00:00:00:01']}\n",
+    )
+    body = _request(config, "sort=ipv4_address").body
+    assert body.index(b"beta.example") < body.index(b"alpha.example")
+    assert b"<td>192.0.2.20</td><td>02:00:00:00:00:02</td>" in body
+    assert b"<td>192.0.2.10</td><td>02:00:00:00:00:01</td>" in body
+    assert b"198.51.100.20" not in body
+    for query in ("192.0.2.20", "02:00:00:00:00:02"):
+        filtered = _request(config, "q=" + query).body
+        assert b"alpha.example" in filtered and b"beta.example" not in filtered
+
+
 def test_search_uses_documented_host_fields_and_escapes_query(tmp_path: Path) -> None:
     config = _config(
         tmp_path,

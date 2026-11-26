@@ -1391,8 +1391,21 @@ def _validation_scope(catalog: str, record_id: str) -> Dict[str, str]:
     return {"catalog": catalog, "record_id": record_id}
 
 
+def _host_list_record(record: Dict[str, Any]) -> Dict[str, Any]:
+    if "interfaces" not in record:
+        return record
+    interface = _host_interface(record, record.get("provisioning_interface"))
+    return {
+        **record,
+        "ipv4_address": _interface_value(interface, "ipv4_address"),
+        "mac_addresses": _interface_value(interface, "mac_address"),
+    }
+
+
 def _catalog_table(action: str, records: List[Dict[str, Any]], params: Mapping[str, List[str]], config: Config, finding_counts: Optional[Mapping[str, int]] = None) -> str:
     title, _path_field, sort_field, columns = CATALOG_ACTIONS[action]
+    if action == "hosts":
+        records = [_host_list_record(record) for record in records]
     query = _query_value(params, "q")
     enabled_filter = _query_value(params, "enabled").casefold()
     selected_sort = _query_value(params, "sort")
